@@ -167,6 +167,7 @@ type VolumeOptions struct {
 	Tags       map[string]string
 	Name       string
 	DiskFormat string
+	Datastore  string
 }
 
 // Generates Valid Options for Diskformat
@@ -671,29 +672,23 @@ func getVirtualMachineDevices(cfg *VSphereConfig, ctx context.Context, c *govmom
 	// Fetch and set data center
 	dc, err := f.Datacenter(ctx, cfg.Global.Datacenter)
 	if err != nil {
-		return nil, nil, nil, nil, err
+		return nil, nil, nil, err
 	}
 	f.SetDatacenter(dc)
-
-	// Find datastores
-	ds, err := f.Datastore(ctx, cfg.Global.Datastore)
-	if err != nil {
-		return nil, nil, nil, nil, err
-	}
 
 	vmRegex := cfg.Global.WorkingDir + name
 
 	vm, err := f.VirtualMachine(ctx, vmRegex)
 	if err != nil {
-		return nil, nil, nil, nil, err
+		return nil, nil, nil, err
 	}
 
 	// Get devices from VM
 	vmDevices, err := vm.Device(ctx)
 	if err != nil {
-		return nil, nil, nil, nil, err
+		return nil, nil, nil, err
 	}
-	return vm, vmDevices, ds, dc, nil
+	return vm, vmDevices, dc, nil
 }
 
 // Removes SCSI controller which is latest attached to VM.
@@ -800,6 +795,23 @@ func (vs *VSphere) AttachDisk(vmDiskPath string, nodeName k8stypes.NodeName) (di
 			return "", "", fmt.Errorf("cannot find SCSI controller in VM")
 		}
 		newSCSICreated = true
+	}
+
+	// Create a new finder
+	f := find.NewFinder(vs.client.Client, true)
+
+	// Set data center
+	f.SetDatacenter(dc)
+	datastorePathObj := new(object.DatastorePath)
+	isSuccess := datastorePathObj.FromString(vmDiskPath)
+	if !isSuccess {
+		glog.Errorf("Failed to parse vmDiskPath: %+q", vmDiskPath)
+		return "", "", errors.New("Failed to parse vmDiskPath")
+	}
+	ds, err := f.Datastore(ctx, datastorePathObj.Datastore)
+	if err != nil {
+		glog.Errorf("Failed while searching for datastore %+q. err %s", datastorePathObj.Datastore, err)
+		return "", "", err
 	}
 
 	disk := vmDevices.CreateDisk(scsiController, ds.Reference(), vmDiskPath)
@@ -1223,6 +1235,14 @@ func (vs *VSphere) DetachDisk(volPath string, nodeName k8stypes.NodeName) error 
 func (vs *VSphere) CreateVolume(volumeOptions *VolumeOptions) (volumePath string, err error) {
 
 	var diskFormat string
+	var datastore string
+
+	// Default datastore is the datastore in the global config
+	if volumeOptions.Datastore == "" {
+		datastore = vs.cfg.Global.Datastore
+	} else {
+		datastore = volumeOptions.Datastore
+	}
 
 	// Default diskformat as 'thin'
 	if volumeOptions.DiskFormat == "" {
@@ -1254,9 +1274,9 @@ func (vs *VSphere) CreateVolume(volumeOptions *VolumeOptions) (volumePath string
 	dc, err := f.Datacenter(ctx, vs.cfg.Global.Datacenter)
 	f.SetDatacenter(dc)
 
-	ds, err := f.Datastore(ctx, vs.cfg.Global.Datastore)
+	ds, err := f.Datastore(ctx, datastore)
 	if err != nil {
-		glog.Errorf("Failed while searching for datastore %+q. err %s", vs.cfg.Global.Datastore, err)
+		glog.Errorf("Failed while searching for datastore %+q. err %s", datastore, err)
 		return "", err
 	}
 
