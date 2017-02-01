@@ -665,7 +665,7 @@ func (vs *VSphere) ScrubDNS(nameservers, searches []string) (nsOut, srchOut []st
 }
 
 // Returns vSphere objects virtual machine, virtual device list, datastore and datacenter.
-func getVirtualMachineDevices(cfg *VSphereConfig, ctx context.Context, c *govmomi.Client, name string) (*object.VirtualMachine, object.VirtualDeviceList, *object.Datastore, *object.Datacenter, error) {
+func getVirtualMachineDevices(cfg *VSphereConfig, ctx context.Context, c *govmomi.Client, name string) (*object.VirtualMachine, object.VirtualDeviceList, *object.Datacenter, error) {
 	// Create a new finder
 	f := find.NewFinder(c.Client, true)
 
@@ -731,7 +731,7 @@ func (vs *VSphere) AttachDisk(vmDiskPath string, nodeName k8stypes.NodeName) (di
 	}
 
 	// Get VM device list
-	vm, vmDevices, ds, dc, err := getVirtualMachineDevices(vs.cfg, ctx, vs.client, vSphereInstance)
+	vm, vmDevices, dc, err := getVirtualMachineDevices(vs.cfg, ctx, vs.client, vSphereInstance)
 	if err != nil {
 		return "", "", err
 	}
@@ -802,12 +802,14 @@ func (vs *VSphere) AttachDisk(vmDiskPath string, nodeName k8stypes.NodeName) (di
 
 	// Set data center
 	f.SetDatacenter(dc)
+	glog.V(1).Infof("BALU - Before starting to find datastorepath from vmDiskPath")
 	datastorePathObj := new(object.DatastorePath)
 	isSuccess := datastorePathObj.FromString(vmDiskPath)
 	if !isSuccess {
 		glog.Errorf("Failed to parse vmDiskPath: %+q", vmDiskPath)
 		return "", "", errors.New("Failed to parse vmDiskPath")
-	}
+	}	
+	glog.V(1).Infof("BALU - datastore %+q from vmDiskPath is %+q", datastorePathObj.Datastore, vmDiskPath)
 	ds, err := f.Datastore(ctx, datastorePathObj.Datastore)
 	if err != nil {
 		glog.Errorf("Failed while searching for datastore %+q. err %s", datastorePathObj.Datastore, err)
@@ -977,7 +979,7 @@ func (vs *VSphere) DiskIsAttached(volPath string, nodeName k8stypes.NodeName) (b
 	}
 
 	// Get VM device list
-	_, vmDevices, _, dc, err := getVirtualMachineDevices(vs.cfg, ctx, vs.client, vSphereInstance)
+	_, vmDevices, dc, err := getVirtualMachineDevices(vs.cfg, ctx, vs.client, vSphereInstance)
 	if err != nil {
 		glog.Errorf("Failed to get VM devices for VM %#q. err: %s", vSphereInstance, err)
 		return false, err
@@ -1028,7 +1030,7 @@ func (vs *VSphere) DisksAreAttached(volPaths []string, nodeName k8stypes.NodeNam
 	}
 
 	// Get VM device list
-	_, vmDevices, _, dc, err := getVirtualMachineDevices(vs.cfg, ctx, vs.client, vSphereInstance)
+	_, vmDevices, dc, err := getVirtualMachineDevices(vs.cfg, ctx, vs.client, vSphereInstance)
 	if err != nil {
 		glog.Errorf("Failed to get VM devices for VM %#q. err: %s", vSphereInstance, err)
 		return attached, err
@@ -1205,7 +1207,7 @@ func (vs *VSphere) DetachDisk(volPath string, nodeName k8stypes.NodeName) error 
 		return nil
 	}
 
-	vm, vmDevices, _, dc, err := getVirtualMachineDevices(vs.cfg, ctx, vs.client, vSphereInstance)
+	vm, vmDevices, dc, err := getVirtualMachineDevices(vs.cfg, ctx, vs.client, vSphereInstance)
 	if err != nil {
 		return err
 	}
