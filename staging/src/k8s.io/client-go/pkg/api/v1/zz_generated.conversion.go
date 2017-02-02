@@ -21,12 +21,13 @@ limitations under the License.
 package v1
 
 import (
+	unsafe "unsafe"
+
 	api "k8s.io/client-go/pkg/api"
 	unversioned "k8s.io/client-go/pkg/api/unversioned"
 	conversion "k8s.io/client-go/pkg/conversion"
 	runtime "k8s.io/client-go/pkg/runtime"
 	types "k8s.io/client-go/pkg/types"
-	unsafe "unsafe"
 )
 
 func init() {
@@ -4331,6 +4332,7 @@ func Convert_api_VolumeSource_To_v1_VolumeSource(in *api.VolumeSource, out *Volu
 
 func autoConvert_v1_VsphereVirtualDiskVolumeSource_To_api_VsphereVirtualDiskVolumeSource(in *VsphereVirtualDiskVolumeSource, out *api.VsphereVirtualDiskVolumeSource, s conversion.Scope) error {
 	out.VolumePath = in.VolumePath
+	out.StoragePolicy = in.StoragePolicy
 	out.FSType = in.FSType
 	return nil
 }
@@ -4341,6 +4343,7 @@ func Convert_v1_VsphereVirtualDiskVolumeSource_To_api_VsphereVirtualDiskVolumeSo
 
 func autoConvert_api_VsphereVirtualDiskVolumeSource_To_v1_VsphereVirtualDiskVolumeSource(in *api.VsphereVirtualDiskVolumeSource, out *VsphereVirtualDiskVolumeSource, s conversion.Scope) error {
 	out.VolumePath = in.VolumePath
+	out.StoragePolicy = in.StoragePolicy
 	out.FSType = in.FSType
 	return nil
 }

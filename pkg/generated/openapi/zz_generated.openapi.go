@@ -14828,6 +14828,13 @@ var OpenAPIDefinitions *common.OpenAPIDefinitions = &common.OpenAPIDefinitions{
 							Format:      "",
 						},
 					},
+					"storagePolicy": {
+						SchemaProps: spec.SchemaProps{
+							Description: "Storage policy that needs to be attached to the vSphere volume vmdk The storage policy must be already created on the vSphere",
+							Type:        []string{"string"},
+							Format:      "",
+						},
+					},
 					"fsType": {
 						SchemaProps: spec.SchemaProps{
 							Description: "Filesystem type to mount. Must be a filesystem type supported by the host operating system. Ex. \"ext4\", \"xfs\", \"ntfs\". Implicitly inferred to be \"ext4\" if unspecified.",

@@ -3740,6 +3740,7 @@ func DeepCopy_v1_VsphereVirtualDiskVolumeSource(in interface{}, out interface{},
 		in := in.(*VsphereVirtualDiskVolumeSource)
 		out := out.(*VsphereVirtualDiskVolumeSource)
 		out.VolumePath = in.VolumePath
+		out.StoragePolicy = in.StoragePolicy
 		out.FSType = in.FSType
 		return nil
 	}
