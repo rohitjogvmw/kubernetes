@@ -324,7 +324,7 @@ func (plugin *vsphereVolumePlugin) newProvisionerInternal(options volume.VolumeO
 }
 
 func (v *vsphereVolumeProvisioner) Provision() (*api.PersistentVolume, error) {
-	vmDiskPath, sizeKB, err := v.manager.CreateVolume(v)
+	vmDiskPath, storagePolicyName, sizeKB, err := v.manager.CreateVolume(v)
 	if err != nil {
 		return nil, err
 	}
@@ -345,8 +345,9 @@ func (v *vsphereVolumeProvisioner) Provision() (*api.PersistentVolume, error) {
 			},
 			PersistentVolumeSource: api.PersistentVolumeSource{
 				VsphereVolume: &api.VsphereVirtualDiskVolumeSource{
-					VolumePath: vmDiskPath,
-					FSType:     "ext4",
+					VolumePath:    vmDiskPath,
+					StoragePolicy: storagePolicyName,
+					FSType:        "ext4",
 				},
 			},
 		},

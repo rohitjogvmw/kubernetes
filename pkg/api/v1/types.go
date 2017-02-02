@@ -1032,10 +1032,13 @@ type VsphereVirtualDiskVolumeSource struct {
 type PhotonPersistentDiskVolumeSource struct {
 	// ID that identifies Photon Controller persistent disk
 	PdID string `json:"pdID" protobuf:"bytes,1,opt,name=pdID"`
+	// Storage policy name associated with the volume.
+	// The storage policy must be already created on the vSphere
+	StoragePolicy string `json:"storagePolicy,omitempty" protobuf:"bytes,2,opt,name=storagePolicy"`
 	// Filesystem type to mount.
 	// Must be a filesystem type supported by the host operating system.
 	// Ex. "ext4", "xfs", "ntfs". Implicitly inferred to be "ext4" if unspecified.
-	FSType string `json:"fsType,omitempty" protobuf:"bytes,2,opt,name=fsType"`
+	FSType string `json:"fsType,omitempty" protobuf:"bytes,3,opt,name=fsType"`
 }
 
 type AzureDataDiskCachingMode string

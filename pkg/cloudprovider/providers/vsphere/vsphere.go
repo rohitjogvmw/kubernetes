@@ -28,8 +28,6 @@ import (
 	"strings"
 	"sync"
 
-	"gopkg.in/gcfg.v1"
-
 	"github.com/golang/glog"
 	"github.com/vmware/govmomi"
 	"github.com/vmware/govmomi/find"
@@ -137,9 +135,9 @@ type VSphereConfig struct {
 }
 
 type Volumes interface {
-	// AttachDisk attaches given disk to given node. Current node
-	// is used when nodeName is empty string.
-	AttachDisk(vmDiskPath string, nodeName k8stypes.NodeName) (diskID string, diskUUID string, err error)
+	// AttachDisk attaches given disk to given node. The policy is attached
+	// to the disk on the node. Current node is used when nodeName is empty string.
+	AttachDisk(vmDiskPath string, storagePolicyName string, nodeName k8stypes.NodeName) (diskID string, diskUUID string, err error)
 
 	// DetachDisk detaches given disk to given node. Current node
 	// is used when nodeName is empty string.
@@ -163,11 +161,12 @@ type Volumes interface {
 
 // VolumeOptions specifies capacity, tags, name and diskFormat for a volume.
 type VolumeOptions struct {
-	CapacityKB int
-	Tags       map[string]string
-	Name       string
-	DiskFormat string
-	Datastore  string
+	CapacityKB        int
+	Tags              map[string]string
+	Name              string
+	DiskFormat        string
+	Datastore         string
+	StoragePolicyName string
 }
 
 // Generates Valid Options for Diskformat
@@ -709,7 +708,7 @@ func cleanUpController(newSCSIController types.BaseVirtualDevice, vmDevices obje
 }
 
 // Attaches given virtual disk volume to the compute running kubelet.
-func (vs *VSphere) AttachDisk(vmDiskPath string, nodeName k8stypes.NodeName) (diskID string, diskUUID string, err error) {
+func (vs *VSphere) AttachDisk(vmDiskPath string, storagePolicyName string, nodeName k8stypes.NodeName) (diskID string, diskUUID string, err error) {
 	// Create context
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -802,13 +801,15 @@ func (vs *VSphere) AttachDisk(vmDiskPath string, nodeName k8stypes.NodeName) (di
 
 	// Set data center
 	f.SetDatacenter(dc)
+
 	glog.V(1).Infof("BALU - Before starting to find datastorepath from vmDiskPath")
+	// Get the datastore from the vmDiskPath
 	datastorePathObj := new(object.DatastorePath)
 	isSuccess := datastorePathObj.FromString(vmDiskPath)
 	if !isSuccess {
 		glog.Errorf("Failed to parse vmDiskPath: %+q", vmDiskPath)
 		return "", "", errors.New("Failed to parse vmDiskPath")
-	}	
+	}
 	glog.V(1).Infof("BALU - datastore %+q from vmDiskPath is %+q", datastorePathObj.Datastore, vmDiskPath)
 	ds, err := f.Datastore(ctx, datastorePathObj.Datastore)
 	if err != nil {
@@ -827,13 +828,35 @@ func (vs *VSphere) AttachDisk(vmDiskPath string, nodeName k8stypes.NodeName) (di
 	backing := disk.Backing.(*types.VirtualDiskFlatVer2BackingInfo)
 	backing.DiskMode = string(types.VirtualDiskModeIndependent_persistent)
 
-	// Attach disk to the VM
-	err = vm.AddDevice(ctx, disk)
-	if err != nil {
-		glog.Errorf("cannot attach disk to the vm - %v", err)
-		if newSCSICreated {
-			cleanUpController(newSCSIController, vmDevices, vm, ctx)
+	var storagePolicyID = ""
+	if storagePolicyName != "" {
+		storagePolicyID, err = getStoragePolicyID(storagePolicyName)
+		if err != nil {
+			glog.V(2).Infof("Error retreiving the storagePolicyID from policyName - %q: %v", volumeOptions.StoragePolicyName, err)
+			return "", "", err
 		}
+	}
+
+	virtualMachineConfigSpec := types.VirtualMachineConfigSpec{}
+	// Device config spec for the disk
+	deviceConfigSpec := &types.VirtualDeviceConfigSpec {
+		Device:    disk,
+		Operation: types.VirtualDeviceConfigSpecOperationAdd,
+	}
+	storageProfileSpec := &types.VirtualMachineDefinedProfileSpec {
+			ProfileId : storagePolicyID
+	}
+	deviceConfigSpec.Profile = append(deviceConfigSpec.Profile, storageProfileSpec)
+	virtualMachineConfigSpec.DeviceChange = append(virtualMachineConfigSpec.DeviceChange, deviceConfigSpec)
+
+	// Reconfigure VM to attach the disk with the storage policy
+	task, err := vm.Reconfigure(ctx, virtualMachineConfigSpec)
+	if err != nil {
+		return "", "", err
+	}
+	err = task.Wait(ctx)
+	if err != nil {
+		glog.Errorf("Error adding device - %+v to the node - %q", disk, vSphereInstance)
 		return "", "", err
 	}
 
@@ -1233,6 +1256,17 @@ func (vs *VSphere) DetachDisk(volPath string, nodeName k8stypes.NodeName) error 
 	return nil
 }
 
+func getStoragePolicyID(storagePolicyName string) (storagePolicyID string, err error) {
+		// TODO:
+		// 1. Query VC to get the list of Storage Profiles implemented in goVmomi.
+		// 2. For the given storageProfile Name specified the user, get the profileID for the user given profile Name.
+		// (This will be util function inside vSphere CP)
+
+		// For now
+		storagePolicyID = storagePolicyName
+		return storagePolicyID, ""
+}
+
 // CreateVolume creates a volume of given size (in KiB).
 func (vs *VSphere) CreateVolume(volumeOptions *VolumeOptions) (volumePath string, err error) {
 
@@ -1244,6 +1278,13 @@ func (vs *VSphere) CreateVolume(volumeOptions *VolumeOptions) (volumePath string
 		datastore = vs.cfg.Global.Datastore
 	} else {
 		datastore = volumeOptions.Datastore
+	}
+
+	if volumeOptions.StoragePolicyName != "" {
+		// TODO:
+		// 1. For the given policy, query VC to get list of compatible/non-compatible datastores. This must be implemented in goVmomi.
+		// 2. Get the list of compatible datastores from 1. (This will be a util function inside vSphere CP)
+		// 3. Check if "datastore" from above, is in list of compatible datastores, otherwise fail the operation.
 	}
 
 	// Default diskformat as 'thin'
