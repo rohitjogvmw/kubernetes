@@ -38,7 +38,6 @@ import (
 	"github.com/vmware/govmomi/session"
 	"github.com/vmware/govmomi/vim25"
 	"github.com/vmware/govmomi/vim25/mo"
-	"github.com/vmware/govmomi/vim25/soap"
 	"github.com/vmware/govmomi/vim25/types"
 	"golang.org/x/net/context"
 
@@ -166,11 +165,12 @@ type Volumes interface {
 
 // VolumeOptions specifies capacity, tags, name and diskFormat for a volume.
 type VolumeOptions struct {
-	CapacityKB int
-	Tags       map[string]string
-	Name       string
-	DiskFormat string
-	Datastore  string
+	CapacityKB         int
+	Tags               map[string]string
+	Name               string
+	DiskFormat         string
+	Datastore          string
+	StorageProfileData string
 }
 
 // Generates Valid Options for Diskformat
@@ -1242,39 +1242,123 @@ func (vs *VSphere) CreateVolume(volumeOptions *VolumeOptions) (volumePath string
 		return "", err
 	}
 
-	// vmdks will be created inside kubevols directory
-	kubeVolsPath := filepath.Clean(ds.Path(VolDir)) + "/"
-	err = makeDirectoryInDatastore(vs.client, dc, kubeVolsPath, false)
-	if err != nil && err != ErrFileAlreadyExist {
-		glog.Errorf("Cannot create dir %#v. err %s", kubeVolsPath, err)
-		return "", err
+	if volumeOptions.StorageProfileData != "" {
+		// Check if the datastore is VSAN if any capability requirements are specified.
+		// VSphere cloud provider now only supports VSAN capabilities requirements
+		ok, err := checkIfDatastoreTypeIsVSAN(vs.client, ds)
+		if err != nil {
+			return "", fmt.Errorf("Failed while determining whether the datastore: %q"+
+				" is VSAN or not.", datastore)
+		}
+		if !ok {
+			return "", fmt.Errorf("The specified datastore: %q is not a VSAN datastore."+
+				" The policy parameters will work only with VSAN Datastore."+
+				" So, please specify a valid VSAN datastore", datastore)
+		}
 	}
-	glog.V(4).Infof("Created dir with path as %+q", kubeVolsPath)
 
-	vmDiskPath := kubeVolsPath + volumeOptions.Name + ".vmdk"
-
-	// Create a virtual disk manager
-	virtualDiskManager := object.NewVirtualDiskManager(vs.client.Client)
-
-	// Create specification for new virtual disk
-	vmDiskSpec := &types.FileBackedVirtualDiskSpec{
-		VirtualDiskSpec: types.VirtualDiskSpec{
-			AdapterType: LSILogicControllerType,
-			DiskType:    diskFormat,
+	dummyVMName := "dummy-Kubernetes-vm"
+	virtualMachineConfigSpec := types.VirtualMachineConfigSpec{
+		Name: dummyVMName,
+		Files: &types.VirtualMachineFileInfo{
+			VmPathName: "[" + ds.Name() + "]",
 		},
-		CapacityKb: int64(volumeOptions.CapacityKB),
+		NumCPUs:  1,
+		MemoryMB: 2048,
 	}
 
-	// Create virtual disk
-	task, err := virtualDiskManager.CreateVirtualDisk(ctx, vmDiskPath, dc, vmDiskSpec)
+	scsiDeviceConfigSpec := &types.VirtualDeviceConfigSpec{
+		Operation: types.VirtualDeviceConfigSpecOperationAdd,
+		Device: &types.VirtualLsiLogicController{
+			types.VirtualSCSIController{
+				SharedBus: types.VirtualSCSISharingNoSharing,
+				VirtualController: types.VirtualController{
+					BusNumber: 0,
+					VirtualDevice: types.VirtualDevice{
+						Key: 1000,
+					},
+				},
+			},
+		},
+	}
+
+	diskConfigSpec := &types.VirtualDeviceConfigSpec{
+		Operation:     types.VirtualDeviceConfigSpecOperationAdd,
+		FileOperation: types.VirtualDeviceConfigSpecFileOperationCreate,
+	}
+
+	virtualDiskSpec := &types.VirtualDisk{
+		CapacityInKB: 4000000,
+	}
+	virtualDeviceSpec := types.VirtualDevice{
+		Key:           0,
+		ControllerKey: 1000,
+		UnitNumber:    new(int32), // zero default value
+	}
+
+	backingObjectSpec := &types.VirtualDiskFlatVer2BackingInfo{
+		DiskMode: string(types.VirtualDiskModePersistent),
+		VirtualDeviceFileBackingInfo: types.VirtualDeviceFileBackingInfo{
+			FileName: "[" + ds.Name() + "] " + volumeOptions.Name + ".vmdk",
+		},
+	}
+	if diskFormat == "thin" {
+		backingObjectSpec.ThinProvisioned = types.NewBool(true)
+	}
+
+	virtualDeviceSpec.Backing = backingObjectSpec
+	virtualDiskSpec.VirtualDevice = virtualDeviceSpec
+	diskConfigSpec.Device = virtualDiskSpec
+
+	if volumeOptions.StorageProfileData != "" {
+		storagePolicySpec := &types.VirtualMachineDefinedProfileSpec{
+			ProfileId: "",
+			ProfileData: &types.VirtualMachineProfileRawData{
+				ExtensionKey: "com.vmware.vim.sps",
+				ObjectData:   volumeOptions.StorageProfileData,
+			},
+		}
+		diskConfigSpec.Profile = append(diskConfigSpec.Profile, storagePolicySpec)
+	}
+	virtualMachineConfigSpec.DeviceChange = append(virtualMachineConfigSpec.DeviceChange, scsiDeviceConfigSpec)
+	virtualMachineConfigSpec.DeviceChange = append(virtualMachineConfigSpec.DeviceChange, diskConfigSpec)
+
+	dcFolders, err := dc.Folders(ctx)
+	currentVM, err := f.VirtualMachine(ctx, vs.localInstanceID)
 	if err != nil {
 		return "", err
 	}
+
+	currentVMHost, err := currentVM.HostSystem(ctx)
+	if err != nil {
+		return "", err
+	}
+
+	resourcePool, err := currentVMHost.ResourcePool(ctx)
+	if err != nil {
+		return "", err
+	}
+
+	task, err := dcFolders.VmFolder.CreateVM(ctx, virtualMachineConfigSpec, resourcePool, nil)
+	if err != nil {
+		return "", err
+	}
+
 	err = task.Wait(ctx)
 	if err != nil {
 		return "", err
 	}
 
+	dummyVM, err := f.VirtualMachine(ctx, dummyVMName)
+	vmDiskPath, err := getVMDiskPath(vs.client, dummyVM, volumeOptions.Name+".vmdk")
+	if err != nil {
+		return "", fmt.Errorf("Failed to get disk path for disk: %q", volumeOptions.Name)
+	}
+	if vmDiskPath == "" {
+		return "", fmt.Errorf("Unable to find the path for the disk: %q", volumeOptions.Name)
+	}
+
+	//TODO: Unregister the VM
 	return vmDiskPath, nil
 }
 
@@ -1352,25 +1436,58 @@ func (vs *VSphere) NodeExists(c *govmomi.Client, nodeName k8stypes.NodeName) (bo
 	return false, nil
 }
 
-// Creates a folder using the specified name.
-// If the intermediate level folders do not exist,
-// and the parameter createParents is true,
-// all the non-existent folders are created.
-func makeDirectoryInDatastore(c *govmomi.Client, dc *object.Datacenter, path string, createParents bool) error {
-
+// Check if the provided datastore is VSAN
+func checkIfDatastoreTypeIsVSAN(c *govmomi.Client, datastore *object.Datastore) (bool, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	fileManager := object.NewFileManager(c.Client)
-	err := fileManager.MakeDirectory(ctx, path, dc, createParents)
+	pc := property.DefaultCollector(c.Client)
+
+	// Convert datastores into list of references
+	var dsRefs []types.ManagedObjectReference
+	dsRefs = append(dsRefs, datastore.Reference())
+
+	// Retrieve summary property for the given datastore
+	var dsMorefs []mo.Datastore
+	err := pc.Retrieve(ctx, dsRefs, []string{"summary"}, &dsMorefs)
 	if err != nil {
-		if soap.IsSoapFault(err) {
-			soapFault := soap.ToSoapFault(err)
-			if _, ok := soapFault.VimFault().(types.FileAlreadyExists); ok {
-				return ErrFileAlreadyExist
+		return false, err
+	}
+
+	for _, ds := range dsMorefs {
+		if ds.Summary.Type == "vsan" {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+// Check if the provided datastore is VSAN
+func getVMDiskPath(c *govmomi.Client, virtualMachine *object.VirtualMachine, diskName string) (string, error) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	pc := property.DefaultCollector(c.Client)
+
+	// Convert virtualMachines into list of references
+	var vmRefs []types.ManagedObjectReference
+	vmRefs = append(vmRefs, virtualMachine.Reference())
+
+	// Retrieve layoutEx.file property for the given datastore
+	var vmMorefs []mo.VirtualMachine
+	err := pc.Retrieve(ctx, vmRefs, []string{"layoutEx.file"}, &vmMorefs)
+	if err != nil {
+		return "", err
+	}
+
+	for _, vm := range vmMorefs {
+		fileLayoutInfo := vm.LayoutEx.File
+		for _, fileInfo := range fileLayoutInfo {
+			// Search for the diskName in the VM file layout
+			if strings.HasSuffix(fileInfo.Name, diskName) {
+				return fileInfo.Name, nil
 			}
 		}
 	}
-
-	return err
+	return "", nil
 }
