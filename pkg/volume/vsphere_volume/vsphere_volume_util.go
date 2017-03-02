@@ -195,37 +195,35 @@ func validateVSANCapability(capabilityName string, capabilityValue string) bool 
 	switch strings.ToLower(capabilityName) {
 	case Policy_HostFailuresToTolerate:
 		capabilityIntVal, ok := verifyCapabilityValueIsInteger(capabilityValue)
-		if !ok && (capabilityIntVal < 0 || capabilityIntVal > 3) {
-			return false
+		if ok && (capabilityIntVal >= 1 && capabilityIntVal <= 3) {
+			return true
 		}
 	case Policy_ForceProvisioning:
 		capabilityIntVal, ok := verifyCapabilityValueIsInteger(capabilityValue)
-		if !ok && (capabilityIntVal != 0 || capabilityIntVal != 1) {
-			return false
+		if ok && (capabilityIntVal == 0 || capabilityIntVal == 1) {
+			return true
 		}
 	case Policy_CacheReservation:
 		capabilityIntVal, ok := verifyCapabilityValueIsInteger(capabilityValue)
-		if !ok && (capabilityIntVal < 0 || capabilityIntVal > 100) {
-			return false
+		if ok && (capabilityIntVal >= 0 && capabilityIntVal <= 100) {
+			return true
 		}
 	case Policy_StripeWidth:
 		capabilityIntVal, ok := verifyCapabilityValueIsInteger(capabilityValue)
-		if !ok && (capabilityIntVal < 1 || capabilityIntVal > 12) {
-			return false
+		if ok && (capabilityIntVal >= 1 && capabilityIntVal <= 12) {
+			return true
 		}
 	// Need to check
 	case Policy_ProportionalCapacity:
 		capabilityIntVal, ok := verifyCapabilityValueIsInteger(capabilityValue)
-		if !ok && (capabilityIntVal < 0 || capabilityIntVal > 100) {
-			return false
+		if ok && (capabilityIntVal >= 0 || capabilityIntVal <= 100) {
+			return true
 		}
 	case Policy_IopsLimit:
 		capabilityIntVal, ok := verifyCapabilityValueIsInteger(capabilityValue)
-		if !ok && (capabilityIntVal < 0) {
-			return false
+		if ok && (capabilityIntVal >= 0) {
+			return true
 		}
-	default:
-		return false
 	}
 	return false
 }
