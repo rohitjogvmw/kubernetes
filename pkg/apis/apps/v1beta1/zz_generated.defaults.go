@@ -80,9 +80,6 @@ func SetObjectDefaults_Deployment(in *Deployment) {
 				}
 			}
 		}
-		if a.VolumeSource.ScaleIO != nil {
-			v1.SetDefaults_ScaleIOVolumeSource(a.VolumeSource.ScaleIO)
-		}
 	}
 	for i := range in.Spec.Template.Spec.InitContainers {
 		a := &in.Spec.Template.Spec.InitContainers[i]
@@ -220,9 +217,6 @@ func SetObjectDefaults_StatefulSet(in *StatefulSet) {
 					}
 				}
 			}
-		}
-		if a.VolumeSource.ScaleIO != nil {
-			v1.SetDefaults_ScaleIOVolumeSource(a.VolumeSource.ScaleIO)
 		}
 	}
 	for i := range in.Spec.Template.Spec.InitContainers {

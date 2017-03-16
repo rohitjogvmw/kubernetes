@@ -17,6 +17,11 @@ limitations under the License.
 package e2e
 
 import (
+	"fmt"
+	"time"
+
+	"strings"
+
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -25,6 +30,17 @@ import (
 	"k8s.io/kubernetes/pkg/client/clientset_generated/clientset"
 	vsphere "k8s.io/kubernetes/pkg/cloudprovider/providers/vsphere"
 	"k8s.io/kubernetes/test/e2e/framework"
+)
+
+const (
+	VmfsDatastore                 = "sharedVmfs-0"
+	VsanDatastore                 = "vsanDatastore"
+	Datastore                     = "datastore"
+	Policy_DiskStripes            = "diskStripes"
+	Policy_HostFailuresToTolerate = "hostFailuresToTolerate"
+	Policy_CacheReservation       = "cacheReservation"
+	Policy_ObjectSpaceReservation = "objectSpaceReservation"
+	Policy_IopsLimit              = "iopsLimit"
 )
 
 /*
@@ -54,13 +70,15 @@ import (
 var _ = framework.KubeDescribe("VSAN policy support for dynamic provisioning [Volume]", func() {
 	f := framework.NewDefaultFramework("volume-vsan-policy")
 	var (
-		client    clientset.Interface
-		namespace string
+		client       clientset.Interface
+		namespace    string
+		scParameters map[string]string
 	)
 	BeforeEach(func() {
 		framework.SkipUnlessProviderIs("vsphere")
 		client = f.ClientSet
 		namespace = f.Namespace.Name
+		scParameters = make(map[string]string)
 		nodeList := framework.GetReadySchedulableNodesOrDie(f.ClientSet)
 		if !(len(nodeList.Items) > 0) {
 			framework.Failf("Unable to find ready and schedulable Node")
@@ -68,49 +86,107 @@ var _ = framework.KubeDescribe("VSAN policy support for dynamic provisioning [Vo
 	})
 
 	// Valid policy.
-	scParameters := make(map[string]string)
-	scParameters["hostFailuresToTolerate"] = "0"
-	scParameters["cacheReservation"] = "20"
-	framework.Logf("Invoking Test for VSAN storage capabilities: %+v", scParameters)
-	It("verify VSAN storage capability hostFailuresToTolerate - 0 and cacheReservation - 20 is honored for dynamically provisioned pv using storageclass", func() {
-		By("Invoking Test for diskformat: eagerzeroedthick")
-		invokeVSANPolicyTest(client, namespace, scParameters)
-	})
-
-	// Invalid policy on a VSAN test bed with 3 ESX hosts.
-	scParameters = make(map[string]string)
-	scParameters["hostFailuresToTolerate"] = "2"
-	scParameters["cacheReservation"] = "20"
-	framework.Logf("Invoking Test for VSAN storage capabilities: %+v", scParameters)
-	It("verify VSAN storage capability hostFailuresToTolerate - 2 and cacheReservation - 20 is honored for dynamically provisioned pv using storageclass", func() {
-		By("Invoking Test for diskformat: eagerzeroedthick")
-		invokeVSANPolicyTest(client, namespace, scParameters)
+	It("verify VSAN storage capability hostFailuresToTolerate - 0 and cacheReservation - 20 is honored for dynamically provisioned pvc using storageclass", func() {
+		By("Invoking Test for VSAN policy hostFailuresToTolerate: 0, cacheReservation: 20")
+		scParameters[Policy_HostFailuresToTolerate] = "0"
+		scParameters[Policy_CacheReservation] = "20"
+		framework.Logf("Invoking Test for VSAN storage capabilities: %+v", scParameters)
+		invokeValidVSANPolicyTest(client, namespace, scParameters)
 	})
 
 	// Valid policy.
-	scParameters = make(map[string]string)
-	scParameters["diskStripes"] = "1"
-	scParameters["objectSpaceReservation"] = "30"
-	framework.Logf("Invoking Test for VSAN storage capabilities: %+v", scParameters)
-	It("verify VSAN storage capability diskStripes - 1 and objectSpaceReservation - 30 is honored for dynamically provisioned pv using storageclass", func() {
-		By("Invoking Test for diskformat: zeroedthick")
-		invokeVSANPolicyTest(client, namespace, scParameters)
+	It("verify VSAN storage capability diskStripes - 1 and objectSpaceReservation - 30 is honored for dynamically provisioned pvc using storageclass", func() {
+		By("Invoking Test for VSAN policy diskStripes: 1, objectSpaceReservation: 30")
+		scParameters[Policy_DiskStripes] = "1"
+		scParameters[Policy_ObjectSpaceReservation] = "30"
+		framework.Logf("Invoking Test for VSAN storage capabilities: %+v", scParameters)
+		invokeValidVSANPolicyTest(client, namespace, scParameters)
 	})
 
 	// Valid policy.
-	scParameters = make(map[string]string)
-	scParameters["objectSpaceReservation"] = "20"
-	scParameters["iopsLimit"] = "100"
-	framework.Logf("Invoking Test for VSAN storage capabilities: %+v", scParameters)
-	It("verify VSAN storage capability objectSpaceReservation - 20 and iopsLimit - 100 is honored for dynamically provisioned pv using storageclass", func() {
-		By("Invoking Test for diskformat: thin")
-		invokeVSANPolicyTest(client, namespace, scParameters)
+	It("verify VSAN storage capability diskStripes - 1 and objectSpaceReservation - 30 datastore - vsanDatastore is honored for dynamically provisioned pvc using storageclass", func() {
+		By("Invoking Test for VSAN policy diskStripes: 1, objectSpaceReservation: 30")
+		scParameters[Policy_DiskStripes] = "1"
+		scParameters[Policy_ObjectSpaceReservation] = "30"
+		scParameters[Datastore] = VsanDatastore
+		framework.Logf("Invoking Test for VSAN storage capabilities: %+v", scParameters)
+		invokeValidVSANPolicyTest(client, namespace, scParameters)
+	})
+
+	// Valid policy.
+	It("verify VSAN storage capability objectSpaceReservation - 20 and iopsLimit - 100 is honored for dynamically provisioned pvc using storageclass", func() {
+		By("Invoking Test for VSAN policy objectSpaceReservation: 20, iopsLimit: 100")
+		scParameters[Policy_ObjectSpaceReservation] = "20"
+		scParameters[Policy_IopsLimit] = "100"
+		framework.Logf("Invoking Test for VSAN storage capabilities: %+v", scParameters)
+		invokeValidVSANPolicyTest(client, namespace, scParameters)
+	})
+
+	// Invalid VSAN storage capabilties parameters.
+	It("verify VSAN storage capability objectSpaceReserve - 20 and stripeWidth - 2 is not honored for dynamically provisioned pvc using storageclass", func() {
+		By("Invoking Test for VSAN policy objectSpaceReserve: 20, stripeWidth: 2")
+		scParameters["objectSpaceReserve"] = "20"
+		scParameters[Policy_DiskStripes] = "2"
+		framework.Logf("Invoking Test for VSAN storage capabilities: %+v", scParameters)
+		err := invokeInvalidVSANPolicyTestNeg(client, namespace, scParameters)
+		framework.Logf("Yo: %+q", err.Error())
+		errorMsg := "invalid option \\\"objectSpaceReserve\\\" for diskStripes in volume plugin kubernetes.io/vsphere-volume."
+		if !strings.Contains(err.Error(), errorMsg) {
+			Expect(err).NotTo(HaveOccurred())
+		}
+	})
+
+	// Invalid policy on a VSAN test bed.
+	// diskStripes value has to be between 1 and 12.
+	It("verify VSAN storage capability diskStripes - 14 and cacheReservation - 20 is not honored for dynamically provisioned pvc using storageclass", func() {
+		By("Invoking Test for VSAN policy diskStripes: 14, cacheReservation: 20")
+		scParameters[Policy_DiskStripes] = "14"
+		scParameters[Policy_CacheReservation] = "20"
+		framework.Logf("Invoking Test for VSAN storage capabilities: %+v", scParameters)
+		err := invokeInvalidVSANPolicyTestNeg(client, namespace, scParameters)
+		framework.Logf("Yo: %+q", err.Error())
+		errorMsg := "Invalid value for " + Policy_DiskStripes + " in volume plugin kubernetes.io/vsphere-volume."
+		if !strings.Contains(err.Error(), errorMsg) {
+			Expect(err).NotTo(HaveOccurred())
+		}
+	})
+
+	// Invalid policy on a VSAN test bed.
+	// hostFailuresToTolerate value has to be between 0 and 3 including.
+	It("verify VSAN storage capability hostFailuresToTolerate - 4 is not honored for dynamically provisioned pvc using storageclass", func() {
+		By("Invoking Test for VSAN policy hostFailuresToTolerate: 4.")
+		scParameters[Policy_HostFailuresToTolerate] = "4"
+		framework.Logf("Invoking Test for VSAN storage capabilities: %+v", scParameters)
+		err := invokeInvalidVSANPolicyTestNeg(client, namespace, scParameters)
+		framework.Logf("Yo: %+q", err.Error())
+		errorMsg := "Invalid value for " + Policy_HostFailuresToTolerate + " in volume plugin kubernetes.io/vsphere-volume."
+		if !strings.Contains(err.Error(), errorMsg) {
+			Expect(err).NotTo(HaveOccurred())
+		}
+	})
+
+	// Specify a valid VSAN policy on a non-VSAN test bed.
+	// The test should fail.
+	It("verify VSAN storage capability diskStripes - 1 and objectSpaceReservation - 30 and datastore - sharedVmfs-0 is not honored for dynamically provisioned pvc using storageclass", func() {
+		By("Invoking Test for VSAN policy diskStripes: 1, objectSpaceReservation: 30 and a non-VSAN datastore: sharedVmfs-0")
+		scParameters[Policy_DiskStripes] = "1"
+		scParameters[Policy_ObjectSpaceReservation] = "30"
+		scParameters[Datastore] = VmfsDatastore
+		framework.Logf("Invoking Test for VSAN storage capabilities: %+v", scParameters)
+		err := invokeInvalidVSANPolicyTestNeg(client, namespace, scParameters)
+		framework.Logf("Yo: %+q", err.Error())
+		errorMsg := "The specified datastore: \\\"" + VmfsDatastore + "\\\" is not a VSAN datastore. " +
+			"The policy parameters will work only with VSAN Datastore."
+		framework.Logf("errorMsg: %+q", errorMsg)
+		if !strings.Contains(err.Error(), errorMsg) {
+			Expect(err).NotTo(HaveOccurred())
+		}
 	})
 })
 
-func invokeVSANPolicyTest(client clientset.Interface, namespace string, scParameters map[string]string) {
+func invokeValidVSANPolicyTest(client clientset.Interface, namespace string, scParameters map[string]string) {
 	By("Creating Storage Class With VSAN policy params")
-	storageClassSpec := getVSphereStorageClassSpec("vsanPolicySC", scParameters)
+	storageClassSpec := getVSphereStorageClassSpec("vsanpolicysc", scParameters)
 	storageclass, err := client.StorageV1beta1().StorageClasses().Create(storageClassSpec)
 	if err != nil {
 		framework.Logf("Failed to create storage class with err: %+v", err)
@@ -176,4 +252,30 @@ func invokeVSANPolicyTest(client clientset.Interface, namespace string, scParame
 	By("Delete pod and wait for volume to be detached from node")
 	deletePodAndWaitForVolumeToDetach(client, namespace, vsp, nodeName, pod, pv.Spec.VsphereVolume.VolumePath)
 
+}
+
+func invokeInvalidVSANPolicyTestNeg(client clientset.Interface, namespace string, scParameters map[string]string) error {
+	By("Creating Storage Class With VSAN policy params")
+	storageClassSpec := getVSphereStorageClassSpec("vsanpolicysc", scParameters)
+	storageclass, err := client.StorageV1beta1().StorageClasses().Create(storageClassSpec)
+	Expect(err).NotTo(HaveOccurred())
+
+	defer client.StorageV1beta1().StorageClasses().Delete(storageclass.Name, nil)
+
+	By("Creating PVC using the Storage Class")
+	pvclaimSpec := getVSphereClaimSpecWithStorageClassAnnotation(namespace, storageclass)
+	pvclaim, err := client.CoreV1().PersistentVolumeClaims(namespace).Create(pvclaimSpec)
+	Expect(err).NotTo(HaveOccurred())
+
+	defer func() {
+		client.CoreV1().PersistentVolumeClaims(namespace).Delete(pvclaimSpec.Name, nil)
+	}()
+
+	By("Waiting for claim to be in bound phase")
+	err = framework.WaitForPersistentVolumeClaimPhase(v1.ClaimBound, client, pvclaim.Namespace, pvclaim.Name, framework.Poll, 2*time.Minute)
+
+	eventList, err := client.CoreV1().Events(pvclaim.Namespace).List(metav1.ListOptions{})
+	framework.Logf("Logging message for failed case: %+q", eventList.Items[0].Message)
+
+	return fmt.Errorf("Failure message: %+q", eventList.Items[0].Message)
 }
