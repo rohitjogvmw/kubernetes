@@ -185,6 +185,7 @@ pkg/kubelet/container
 pkg/kubelet/envvars
 pkg/kubelet/eviction
 pkg/kubelet/eviction/api
+pkg/kubelet/gpu/nvidia
 pkg/kubelet/util/csr
 pkg/kubelet/util/format
 pkg/kubelet/util/ioutils
@@ -285,6 +286,7 @@ plugin/pkg/auth
 plugin/pkg/auth/authenticator/token/bootstrap
 plugin/pkg/auth/authorizer
 plugin/pkg/auth/authorizer/rbac/bootstrappolicy
+plugin/pkg/scheduler/api/validation
 staging/src/k8s.io/apimachinery/pkg/api/equality
 staging/src/k8s.io/apimachinery/pkg/api/errors
 staging/src/k8s.io/apimachinery/pkg/api/resource
