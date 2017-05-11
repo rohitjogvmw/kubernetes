@@ -838,7 +838,7 @@ func (vs *VSphere) AttachDisk(vmDiskPath string, nodeName k8stypes.NodeName) (di
 	*disk.UnitNumber = unitNumber
 
 	backing := disk.Backing.(*types.VirtualDiskFlatVer2BackingInfo)
-	backing.DiskMode = string(types.VirtualDiskModeIndependent_persistent)
+	backing.DiskMode = string(types.VirtualDiskModePersistent)
 
 	// Attach disk to the VM
 	err = vm.AddDevice(ctx, disk)
