@@ -45,7 +45,7 @@ func (dc Datacenter) GetVMByUUID(ctx context.Context, vmUUID string) (*VirtualMa
 		glog.Errorf("Unable to find VM by UUID. VM UUID: %s", vmUUID)
 		return nil, err
 	}
-	virtualMachine := VirtualMachine{object.NewVirtualMachine(dc.Client(), svm.Reference())}
+	virtualMachine := VirtualMachine{object.NewVirtualMachine(dc.Client(), svm.Reference()), dc}
 	return &virtualMachine, nil
 }
 
@@ -58,7 +58,7 @@ func (dc Datacenter) GetVMByPath(ctx context.Context, vmPath string) (*VirtualMa
 		glog.Errorf("Failed to find VM by Path. VM Path: %s, err: %+v", vmPath, err)
 		return nil, err
 	}
-	virtualMachine := VirtualMachine{vm}
+	virtualMachine := VirtualMachine{vm, dc}
 	return &virtualMachine, nil
 }
 
@@ -76,7 +76,7 @@ func (dc Datacenter) GetDatastoreByPath(ctx context.Context, vmDiskPath string) 
 		glog.Errorf("Failed while searching for datastore: %s. err: %+v", datastorePathObj.Datastore, err)
 		return nil, err
 	}
-	datastore := Datastore{ds}
+	datastore := Datastore{ds, dc}
 	return &datastore, nil
 }
 
@@ -88,7 +88,7 @@ func (dc Datacenter) GetDatastoreByName(ctx context.Context, name string) (*Data
 		glog.Errorf("Failed while searching for datastore: %s. err: %+v", name, err)
 		return nil, err
 	}
-	datastore := Datastore{ds}
+	datastore := Datastore{ds, dc}
 	return &datastore, nil
 }
 

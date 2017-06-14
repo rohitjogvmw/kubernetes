@@ -26,6 +26,8 @@ var vSphereConnection = vclib.VSphereConnection{
 }
 
 var dc *vclib.Datacenter
+var vmMaster *vclib.VirtualMachine
+var vmNode *vclib.VirtualMachine
 
 func main() {
 	err := vSphereConnection.Connect()
@@ -42,30 +44,58 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
+	// Datacenter functions
 	dc, err = vclib.GetDatacenter(ctx, vSphereConnection, DatacenterName)
 
 	getVMByUUIDTest(ctx, "423787da-df6c-7306-0518-660397085b6f")
 	fmt.Printf("===============================================\n")
 
-	vm1, err := getVMByPath(ctx, "/vcqaDC/vm/kubernetes/master")
-	vm2, err := getVMByPath(ctx, "/vcqaDC/vm/kubernetes/node1")
+	vmMaster, err = getVMByPathTest(ctx, "/vcqaDC/vm/kubernetes/master")
+	vmNode, err = getVMByPathTest(ctx, "/vcqaDC/vm/kubernetes/node1")
 	fmt.Printf("===============================================\n")
 
-	ds1, err := getDatastoreByPath(ctx, "[vsanDatastore] kubevols/redis-master.vmdk")
+	ds1, err := getDatastoreByPathTest(ctx, "[vsanDatastore] kubevols/redis-master.vmdk")
 	fmt.Printf("===============================================\n")
 
-	ds2, err := getDatastoreByName(ctx, "sharedVmfs-0")
+	ds2, err := getDatastoreByNameTest(ctx, "sharedVmfs-0")
 	fmt.Printf("===============================================\n")
 
-	getFolderByPath(ctx, "/vcqaDC/vm/kubernetes")
+	getFolderByPathTest(ctx, "/vcqaDC/vm/kubernetes")
 	fmt.Printf("===============================================\n")
 
-	getVMMoList(ctx, []*vclib.VirtualMachine{vm1, vm2}, []string{"name", "summary"})
+	getVMMoListTest(ctx, []*vclib.VirtualMachine{vmMaster, vmNode}, []string{"name", "summary"})
 	fmt.Printf("===============================================\n")
 
-	getDatastoreMoList(ctx, []*vclib.Datastore{ds1, ds2}, []string{"name", "summary"})
+	getDatastoreMoListTest(ctx, []*vclib.Datastore{ds1, ds2}, []string{"name", "summary"})
 	fmt.Printf("===============================================\n")
 
+	// Virtual Machine functions
+	isDiskAttachedTest(ctx, "[vsanDatastore] kubevols1/redis-master.vmdk")
+	fmt.Printf("===============================================\n")
+
+	getVirtualDiskUUIDByPathTest(ctx, "[vsanDatastore] kubevols/redis-master.vmdk")
+}
+
+// isDiskAttachedTest checks if disk is attached to the VM.
+func isDiskAttachedTest(ctx context.Context, diskPath string) {
+	attached, err := vmNode.IsDiskAttached(ctx, diskPath)
+	if err != nil {
+		glog.Errorf("Failed to check whether disk is attached. err: %s", err)
+	}
+	if attached {
+		fmt.Printf("Disk with diskPath: %q is attached to VM: %q\n", diskPath, vmNode.Name())
+	} else {
+		fmt.Printf("Disk with diskPath: %q is not attached to VM: %q\n", diskPath, vmNode.Name())
+	}
+}
+
+// isDiskAttachedTest checks if disk is attached to the VM.
+func getVirtualDiskUUIDByPathTest(ctx context.Context, diskPath string) {
+	diskUUID, err := vmNode.GetVirtualDiskUUIDByPath(ctx, diskPath)
+	if err != nil {
+		glog.Errorf("Failed to check whether disk is attached. err: %s", err)
+	}
+	fmt.Printf("Disk UUID for diskPath: %q on VM: %q is %q\n", diskPath, vmNode.Name(), diskUUID)
 }
 
 func getVMByUUIDTest(ctx context.Context, vmUUID string) {
@@ -76,7 +106,7 @@ func getVMByUUIDTest(ctx context.Context, vmUUID string) {
 	fmt.Printf("VM details are %v\n", vm)
 }
 
-func getVMByPath(ctx context.Context, vmPath string) (*vclib.VirtualMachine, error) {
+func getVMByPathTest(ctx context.Context, vmPath string) (*vclib.VirtualMachine, error) {
 	vm, err := dc.GetVMByPath(ctx, vmPath)
 	if err != nil {
 		glog.Errorf("Failed to get VM from vmPath: %q with err: %v", vmPath, err)
@@ -86,7 +116,7 @@ func getVMByPath(ctx context.Context, vmPath string) (*vclib.VirtualMachine, err
 	return vm, nil
 }
 
-func getDatastoreByPath(ctx context.Context, vmDiskPath string) (*vclib.Datastore, error) {
+func getDatastoreByPathTest(ctx context.Context, vmDiskPath string) (*vclib.Datastore, error) {
 	ds, err := dc.GetDatastoreByPath(ctx, vmDiskPath)
 	if err != nil {
 		glog.Errorf("Failed to get Datastore from vmDiskPath: %q with err: %v", vmDiskPath, err)
@@ -96,7 +126,7 @@ func getDatastoreByPath(ctx context.Context, vmDiskPath string) (*vclib.Datastor
 	return ds, nil
 }
 
-func getDatastoreByName(ctx context.Context, name string) (*vclib.Datastore, error) {
+func getDatastoreByNameTest(ctx context.Context, name string) (*vclib.Datastore, error) {
 	ds, err := dc.GetDatastoreByName(ctx, name)
 	if err != nil {
 		glog.Errorf("Failed to get Datastore from name: %q with err: %v", name, err)
@@ -106,7 +136,7 @@ func getDatastoreByName(ctx context.Context, name string) (*vclib.Datastore, err
 	return ds, nil
 }
 
-func getFolderByPath(ctx context.Context, folderPath string) {
+func getFolderByPathTest(ctx context.Context, folderPath string) {
 	folder, err := dc.GetFolderByPath(ctx, folderPath)
 	if err != nil {
 		glog.Errorf("Failed to get Datastore from folderPath: %q with err: %v", folderPath, err)
@@ -114,7 +144,7 @@ func getFolderByPath(ctx context.Context, folderPath string) {
 	fmt.Printf("Folder details are %v\n", folder)
 }
 
-func getVMMoList(ctx context.Context, vmObjList []*vclib.VirtualMachine, properties []string) {
+func getVMMoListTest(ctx context.Context, vmObjList []*vclib.VirtualMachine, properties []string) {
 	vmMoList, err := dc.GetVMMoList(ctx, vmObjList, properties)
 	if err != nil {
 		glog.Errorf("Failed to get VM managed objects with the given properties from the VM objects. vmObjList: %+v, properties: +%v, err: %+v", vmObjList, properties, err)
@@ -125,7 +155,7 @@ func getVMMoList(ctx context.Context, vmObjList []*vclib.VirtualMachine, propert
 	}
 }
 
-func getDatastoreMoList(ctx context.Context, dsObjList []*vclib.Datastore, properties []string) {
+func getDatastoreMoListTest(ctx context.Context, dsObjList []*vclib.Datastore, properties []string) {
 	dsMoList, err := dc.GetDatastoreMoList(ctx, dsObjList, properties)
 	if err != nil {
 		glog.Errorf("Failed to get datastore managed objects with the given properties from the datastore objects. vmObjList: %+v, properties: +%v, err: %+v", dsObjList, properties, err)

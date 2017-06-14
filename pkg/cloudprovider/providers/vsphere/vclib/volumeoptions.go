@@ -70,7 +70,7 @@ func CheckControllerSupported(ctrlType string) bool {
 
 // VerifyVolumeOptions checks if volumeOptions.SCIControllerType is valid controller type
 func (volumeOptions VolumeOptions) VerifyVolumeOptions() bool {
-	valid = CheckControllerSupported(volumeOptions.SSCIControllerType)
+	valid := CheckControllerSupported(volumeOptions.SCSIControllerType)
 	if !valid {
 		return valid
 	}

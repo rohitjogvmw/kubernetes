@@ -1,13 +1,5 @@
 package vclib
 
-const (
-	LOG_LEVEL = 4
-)
-const (
-	RoundTripperDefaultCount = 3
-	VSANDatastoreType        = "vsan"
-)
-
 // Volume Constnts
 const (
 	ThinDiskType             = "thin"
@@ -30,8 +22,13 @@ const (
 	PVSCSIControllerType      = "pvscsi"
 )
 
+// Other Constants
 const (
-	DatastoreProperty     = "datastore"
-	DatastoreInfoProperty = "info"
-	VirtualMachineType    = "VirtualMachine"
+	LogLevel                 = 4
+	DatastoreProperty        = "datastore"
+	DatastoreInfoProperty    = "info"
+	VirtualMachineType       = "VirtualMachine"
+	RoundTripperDefaultCount = 3
+	VSANDatastoreType        = "vsan"
+	DummyVMPrefixName        = "vsphere-k8s"
 )

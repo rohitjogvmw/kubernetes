@@ -23,7 +23,7 @@ func formatVirtualDiskUUID(uuid string) string {
 	return strings.ToLower(uuidWithNoHypens)
 }
 
-func createDiskSpec(ctx context.Context, vm VirtualMachine, diskPath string, volumeOptions VolumeOptions) (*types.VirtualDisk, types.BaseVirtualDevice, error) {
+func createDiskSpec(ctx context.Context, vm VirtualMachine, diskPath string, dsObj Datastore, volumeOptions VolumeOptions) (*types.VirtualDisk, types.BaseVirtualDevice, error) {
 	var newSCSIController types.BaseVirtualDevice
 	vmDevices, err := vm.Device(ctx)
 	if err != nil {
@@ -36,7 +36,7 @@ func createDiskSpec(ctx context.Context, vm VirtualMachine, diskPath string, vol
 	if scsiController == nil {
 		newSCSIController, err = vm.createAndAttachSCSIController(ctx, volumeOptions.SCSIControllerType)
 		if err != nil {
-			// Check this @Balu
+			// Check this @Balu vm.Name()
 			glog.Errorf("Failed to create SCSI controller for VM :%q with err: %+v", vm.Name(), err)
 			return nil, nil, err
 		}
@@ -50,16 +50,16 @@ func createDiskSpec(ctx context.Context, vm VirtualMachine, diskPath string, vol
 		scsiControllersOfRequiredType := getSCSIControllersOfType(vmDevices, volumeOptions.SCSIControllerType)
 		scsiController := getAvailableSCSIController(scsiControllersOfRequiredType)
 		if scsiController == nil {
-			glog.Errorf("Cannot find SCSI controller in VM")
+			glog.Errorf("Cannot find SCSI controller of type: %q in VM", volumeOptions.SCSIControllerType)
 			// attempt clean up of scsi controller
-			vm.DeleteController(ctx, newSCSIController)
-			return nil, nil, fmt.Errorf("cannot find SCSI controller in VM")
+			vm.deleteController(ctx, newSCSIController, vmDevices)
+			return nil, nil, fmt.Errorf("Cannot find SCSI controller of type: %q in VM", volumeOptions.SCSIControllerType)
 		}
 	}
-	disk = vmDevices.CreateDisk(scsiController, datastoreMoRef, diskPath)
+	disk := vmDevices.CreateDisk(scsiController, dsObj.Reference(), diskPath)
 	unitNumber, err := getNextUnitNumber(vmDevices, scsiController)
 	if err != nil {
-		glog.Errorf("Cannot attach disk to VM, limit reached - %+v.", err)
+		glog.Errorf("Cannot attach disk to VM, unitNumber limit reached - %+v.", err)
 		return nil, nil, err
 	}
 	*disk.UnitNumber = unitNumber
@@ -69,7 +69,6 @@ func createDiskSpec(ctx context.Context, vm VirtualMachine, diskPath string, vol
 	if volumeOptions.CapacityKB != 0 {
 		disk.CapacityInKB = int64(volumeOptions.CapacityKB)
 	}
-	disk.CapacityInKB = int64(volumeOptions.CapacityKB)
 	if volumeOptions.DiskFormat != "" {
 		var diskFormat string
 		diskFormat = diskFormatValidType[volumeOptions.DiskFormat]
@@ -131,4 +130,20 @@ func getNextUnitNumber(devices object.VirtualDeviceList, c types.BaseVirtualCont
 		}
 	}
 	return -1, fmt.Errorf("SCSI Controller with key=%d does not have any available slots", key)
+}
+
+// getSCSIControllers filters and return list of Controller Devices from given list of Virtual Machine Devices.
+func getSCSIControllers(vmDevices object.VirtualDeviceList) []*types.VirtualController {
+	// get all virtual scsi controllers
+	var scsiControllers []*types.VirtualController
+	for _, device := range vmDevices {
+		devType := vmDevices.Type(device)
+		switch devType {
+		case SCSIControllerType, strings.ToLower(LSILogicControllerType), strings.ToLower(BusLogicControllerType), PVSCSIControllerType, strings.ToLower(LSILogicSASControllerType):
+			if c, ok := device.(types.BaseVirtualController); ok {
+				scsiControllers = append(scsiControllers, c.GetVirtualController())
+			}
+		}
+	}
+	return scsiControllers
 }

@@ -7,4 +7,5 @@ import (
 // Datastore extends the govmomi Datastore object
 type Datastore struct {
 	*object.Datastore
+	datacenter Datacenter
 }
