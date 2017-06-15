@@ -11,7 +11,7 @@ import (
 	"github.com/vmware/govmomi/vim25/types"
 )
 
-func getFinder(dc Datacenter) *find.Finder {
+func getFinder(dc *Datacenter) *find.Finder {
 	finder := find.NewFinder(dc.Client(), true)
 	finder.SetDatacenter(dc.Datacenter)
 	return finder
@@ -23,7 +23,7 @@ func formatVirtualDiskUUID(uuid string) string {
 	return strings.ToLower(uuidWithNoHypens)
 }
 
-func createDiskSpec(ctx context.Context, vm VirtualMachine, diskPath string, dsObj Datastore, volumeOptions VolumeOptions) (*types.VirtualDisk, types.BaseVirtualDevice, error) {
+func createDiskSpec(ctx context.Context, diskPath string, vm *VirtualMachine, dsObj *Datastore, volumeOptions VolumeOptions) (*types.VirtualDisk, types.BaseVirtualDevice, error) {
 	var newSCSIController types.BaseVirtualDevice
 	vmDevices, err := vm.Device(ctx)
 	if err != nil {
@@ -36,7 +36,6 @@ func createDiskSpec(ctx context.Context, vm VirtualMachine, diskPath string, dsO
 	if scsiController == nil {
 		newSCSIController, err = vm.createAndAttachSCSIController(ctx, volumeOptions.SCSIControllerType)
 		if err != nil {
-			// Check this @Balu vm.Name()
 			glog.Errorf("Failed to create SCSI controller for VM :%q with err: %+v", vm.Name(), err)
 			return nil, nil, err
 		}
@@ -48,7 +47,7 @@ func createDiskSpec(ctx context.Context, vm VirtualMachine, diskPath string, dsO
 		}
 		// verify scsi controller in virtual machine
 		scsiControllersOfRequiredType := getSCSIControllersOfType(vmDevices, volumeOptions.SCSIControllerType)
-		scsiController := getAvailableSCSIController(scsiControllersOfRequiredType)
+		scsiController = getAvailableSCSIController(scsiControllersOfRequiredType)
 		if scsiController == nil {
 			glog.Errorf("Cannot find SCSI controller of type: %q in VM", volumeOptions.SCSIControllerType)
 			// attempt clean up of scsi controller

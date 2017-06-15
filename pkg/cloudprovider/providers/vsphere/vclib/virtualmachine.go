@@ -7,7 +7,6 @@ import (
 
 	"github.com/golang/glog"
 	"github.com/vmware/govmomi/object"
-	"github.com/vmware/govmomi/property"
 	"github.com/vmware/govmomi/vim25/mo"
 	"github.com/vmware/govmomi/vim25/types"
 )
@@ -15,11 +14,11 @@ import (
 // VirtualMachine extends the govmomi VirtualMachine object
 type VirtualMachine struct {
 	*object.VirtualMachine
-	datacenter Datacenter
+	datacenter *Datacenter
 }
 
 // IsDiskAttached checks if disk is attached to the VM.
-func (vm VirtualMachine) IsDiskAttached(ctx context.Context, diskPath string) (bool, error) {
+func (vm *VirtualMachine) IsDiskAttached(ctx context.Context, diskPath string) (bool, error) {
 	// Get object key of controller to which disk is attached
 	_, err := vm.GetVirtualDiskControllerKey(ctx, diskPath)
 	if err != nil {
@@ -32,17 +31,8 @@ func (vm VirtualMachine) IsDiskAttached(ctx context.Context, diskPath string) (b
 	return true, nil
 }
 
-// GetVirtualDiskUUIDByPath gets the virtual disk UUID by datastore (namespace) path
-//
-// diskPath can be namespace path (e.g. "[vsanDatastore] volumes/test.vmdk") or
-// uuid path (e.g. "[vsanDatastore] 59427457-6c5a-a917-7997-0200103eedbc/test.vmdk").
-// `volumes` in this case would be a symlink to
-// `59427457-6c5a-a917-7997-0200103eedbc`.
-//
-// We want users to use namespace path. It is good for attaching the disk,
-// but for detaching the API requires uuid path.  Hence, to detach the right
-// device we have to convert the namespace path to uuid path.
-func (vm VirtualMachine) GetVirtualDiskUUIDByPath(ctx context.Context, diskPath string) (string, error) {
+// GetVirtualDiskUUIDByPath gets the virtual disk UUID by diskPath
+func (vm *VirtualMachine) GetVirtualDiskUUIDByPath(ctx context.Context, diskPath string) (string, error) {
 	if len(diskPath) > 0 && filepath.Ext(diskPath) != ".vmdk" {
 		diskPath += ".vmdk"
 	}
@@ -59,7 +49,7 @@ func (vm VirtualMachine) GetVirtualDiskUUIDByPath(ctx context.Context, diskPath 
 }
 
 // GetVirtualDiskControllerKey gets the object key that denotes the controller object to which vmdk is attached.
-func (vm VirtualMachine) GetVirtualDiskControllerKey(ctx context.Context, diskPath string) (int32, error) {
+func (vm *VirtualMachine) GetVirtualDiskControllerKey(ctx context.Context, diskPath string) (int32, error) {
 	vmDevices, err := vm.Device(ctx)
 	if err != nil {
 		glog.Errorf("Failed to get the devices for vm: %q. err: %+v", vm.Name(), err)
@@ -76,7 +66,7 @@ func (vm VirtualMachine) GetVirtualDiskControllerKey(ctx context.Context, diskPa
 }
 
 // DeleteVM deletes the VM.
-func (vm VirtualMachine) DeleteVM(ctx context.Context) error {
+func (vm *VirtualMachine) DeleteVM(ctx context.Context) error {
 	destroyTask, err := vm.Destroy(ctx)
 	if err != nil {
 		glog.Errorf("Failed to delete the VM: %q. err: %+v", vm.Name(), err)
@@ -87,7 +77,7 @@ func (vm VirtualMachine) DeleteVM(ctx context.Context) error {
 
 // AttachDisk attaches the disk at location - vmDiskPath from Datastore - dsObj to the Virtual Machine
 // Additionally the disk can be configured with SPBM policy if volumeOptions.StoragePolicyID is non-empty.
-func (vm VirtualMachine) AttachDisk(ctx context.Context, vmDiskPath string, volumeOptions VolumeOptions, dsObj Datastore) (string, error) {
+func (vm *VirtualMachine) AttachDisk(ctx context.Context, vmDiskPath string, volumeOptions VolumeOptions) (string, error) {
 	// Check if the diskControllerType is valid
 	if !CheckControllerSupported(volumeOptions.SCSIControllerType) {
 		return "", fmt.Errorf("Not a valid SCSI Controller Type. Valid options are %q", SCSIControllerTypeValidOptions())
@@ -97,12 +87,19 @@ func (vm VirtualMachine) AttachDisk(ctx context.Context, vmDiskPath string, volu
 		glog.Errorf("Error occurred while checking if disk is attached on VM: %q. vmDiskPath: %q, err: %+v", vm.Name(), vmDiskPath, err)
 		return "", err
 	}
+	// If disk is already attached, return the disk UUID
 	if attached {
 		diskUUID, _ := vm.GetVirtualDiskUUIDByPath(ctx, vmDiskPath)
 		return diskUUID, nil
 	}
+
+	dsObj, err := vm.datacenter.GetDatastoreByPath(ctx, vmDiskPath)
+	if err != nil {
+		glog.Errorf("Failed to get datastore from vmDiskPath: %q. err: %+v", vmDiskPath, err)
+		return "", err
+	}
 	// If disk is not attached, create a disk spec for disk to be attached to the VM.
-	disk, newSCSIController, err := createDiskSpec(ctx, vm, vmDiskPath, dsObj, volumeOptions)
+	disk, newSCSIController, err := createDiskSpec(ctx, vmDiskPath, vm, dsObj, volumeOptions)
 	if err != nil {
 		glog.Errorf("Error occurred while creating disk spec. err: %+v", err)
 		return "", err
@@ -141,6 +138,8 @@ func (vm VirtualMachine) AttachDisk(ctx context.Context, vmDiskPath string, volu
 		}
 		return "", err
 	}
+
+	// Once disk is attached, get the disk UUID.
 	diskUUID, err := getVirtualDiskUUIDByDisk(ctx, vmDevices, disk)
 	if err != nil {
 		glog.Errorf("Error occurred while getting Disk Info from VM: %q. err: %v", vm.Name(), err)
@@ -154,7 +153,7 @@ func (vm VirtualMachine) AttachDisk(ctx context.Context, vmDiskPath string, volu
 }
 
 // DetachDisk detaches the disk specified by vmDiskPath
-func (vm VirtualMachine) DetachDisk(ctx context.Context, vmDiskPath string) error {
+func (vm *VirtualMachine) DetachDisk(ctx context.Context, vmDiskPath string) error {
 	vmDevices, err := vm.Device(ctx)
 	if err != nil {
 		glog.Errorf("Error occurred while getting VM devices for VM: %q. err: %v", vm.Name(), err)
@@ -181,19 +180,17 @@ func (vm VirtualMachine) DetachDisk(ctx context.Context, vmDiskPath string) erro
 }
 
 // GetResourcePool gets the resource pool for VM.
-func (vm VirtualMachine) GetResourcePool(ctx context.Context) (*object.ResourcePool, error) {
-	var vmMo mo.VirtualMachine
-	pc := property.DefaultCollector(vm.Client())
-	err := pc.RetrieveOne(ctx, vm.Reference(), []string{"resourcepool"}, &vmMo)
+func (vm *VirtualMachine) GetResourcePool(ctx context.Context) (*object.ResourcePool, error) {
+	vmMoList, err := vm.datacenter.GetVMMoList(ctx, []*VirtualMachine{vm}, []string{"resourcePool"})
 	if err != nil {
 		glog.Errorf("Failed to get resource pool from VM: %q. err: %+v", vm.Name(), err)
 		return nil, err
 	}
-	return object.NewResourcePool(vm.Client(), vmMo.ResourcePool.Reference()), nil
+	return object.NewResourcePool(vm.Client(), vmMoList[0].ResourcePool.Reference()), nil
 }
 
 // GetAllAccessibleDatastores gets the list of accessible Datastores for the given Virtual Machine
-func (vm VirtualMachine) GetAllAccessibleDatastores(ctx context.Context) ([]Datastore, error) {
+func (vm *VirtualMachine) GetAllAccessibleDatastores(ctx context.Context) ([]Datastore, error) {
 	host, err := vm.HostSystem(ctx)
 	if err != nil {
 		glog.Errorf("Failed to get host system for VM: %q. err: %+v", vm.Name(), err)
@@ -214,7 +211,7 @@ func (vm VirtualMachine) GetAllAccessibleDatastores(ctx context.Context) ([]Data
 }
 
 // createAndAttachSCSIController creates and attachs the SCSI controller to the VM.
-func (vm VirtualMachine) createAndAttachSCSIController(ctx context.Context, diskControllerType string) (types.BaseVirtualDevice, error) {
+func (vm *VirtualMachine) createAndAttachSCSIController(ctx context.Context, diskControllerType string) (types.BaseVirtualDevice, error) {
 	// Get VM device list
 	vmDevices, err := vm.Device(ctx)
 	if err != nil {
@@ -248,18 +245,8 @@ func (vm VirtualMachine) createAndAttachSCSIController(ctx context.Context, disk
 	return newSCSIController, nil
 }
 
-// getVirtualDiskUUIDByDevice gets the disk UUID by device
-func getVirtualDiskUUIDByDevice(newDevice types.BaseVirtualDevice) (string, error) {
-	virtualDevice := newDevice.GetVirtualDevice()
-	if backing, ok := virtualDevice.Backing.(*types.VirtualDiskFlatVer2BackingInfo); ok {
-		uuid := formatVirtualDiskUUID(backing.Uuid)
-		return uuid, nil
-	}
-	return "", ErrNoDiskUUIDFound
-}
-
 // getVirtualDeviceByPath gets the virtual device by path
-func (vm VirtualMachine) getVirtualDeviceByPath(ctx context.Context, vmDevices object.VirtualDeviceList, diskPath string) (types.BaseVirtualDevice, error) {
+func (vm *VirtualMachine) getVirtualDeviceByPath(ctx context.Context, vmDevices object.VirtualDeviceList, diskPath string) (types.BaseVirtualDevice, error) {
 	volumeUUID, err := vm.GetVirtualDiskUUIDByPath(ctx, diskPath)
 	if err != nil {
 		glog.Errorf("Failed to get disk UUID for path: %q on VM: %q. err: %+v", diskPath, vm.Name(), err)
@@ -278,7 +265,7 @@ func (vm VirtualMachine) getVirtualDeviceByPath(ctx context.Context, vmDevices o
 }
 
 // deleteController removes latest added SCSI controller from VM.
-func (vm VirtualMachine) deleteController(ctx context.Context, controllerDevice types.BaseVirtualDevice, vmDevices object.VirtualDeviceList) error {
+func (vm *VirtualMachine) deleteController(ctx context.Context, controllerDevice types.BaseVirtualDevice, vmDevices object.VirtualDeviceList) error {
 	controllerDeviceList := vmDevices.SelectByType(controllerDevice)
 	if len(controllerDeviceList) < 1 {
 		return ErrNoDevicesFound
@@ -290,6 +277,23 @@ func (vm VirtualMachine) deleteController(ctx context.Context, controllerDevice 
 		return err
 	}
 	return nil
+}
+
+// getVirtualDiskID gets a device ID which is internal vSphere API identifier for the attached virtual disk.
+func (vm *VirtualMachine) getVirtualDiskID(ctx context.Context, diskPath string) (string, error) {
+	vmDevices, err := vm.Device(ctx)
+	if err != nil {
+		glog.Errorf("Failed to get the devices for VM: %q. err: %+v", vm.Name(), err)
+		return "", err
+	}
+	device, err := vm.getVirtualDeviceByPath(ctx, vmDevices, diskPath)
+	if err != nil {
+		glog.Errorf("Failed to get virtualDevice for path: %q on VM: %q. err: %+v", diskPath, vm.Name(), err)
+		return "", err
+	} else if device != nil {
+		return vmDevices.Name(device), nil
+	}
+	return "", ErrNoDiskIDFound
 }
 
 // getVirtualDiskUUIDByDisk gets a disk UUID for the virtual disk.
@@ -310,19 +314,12 @@ func getVirtualDiskUUIDByDisk(ctx context.Context, vmDevices object.VirtualDevic
 	return diskUUID, nil
 }
 
-// getVirtualDiskID gets a device ID which is internal vSphere API identifier for the attached virtual disk.
-func (vm VirtualMachine) getVirtualDiskID(ctx context.Context, diskPath string) (string, error) {
-	vmDevices, err := vm.Device(ctx)
-	if err != nil {
-		glog.Errorf("Failed to get the devices for VM: %q. err: %+v", vm.Name(), err)
-		return "", err
+// getVirtualDiskUUIDByDevice gets the disk UUID by device
+func getVirtualDiskUUIDByDevice(newDevice types.BaseVirtualDevice) (string, error) {
+	virtualDevice := newDevice.GetVirtualDevice()
+	if backing, ok := virtualDevice.Backing.(*types.VirtualDiskFlatVer2BackingInfo); ok {
+		uuid := formatVirtualDiskUUID(backing.Uuid)
+		return uuid, nil
 	}
-	device, err := vm.getVirtualDeviceByPath(ctx, vmDevices, diskPath)
-	if err != nil {
-		glog.Errorf("Failed to get virtualDevice for path: %q on VM: %q. err: %+v", diskPath, vm.Name(), err)
-		return "", err
-	} else if device != nil {
-		return vmDevices.Name(device), nil
-	}
-	return "", ErrNoDiskIDFound
+	return "", ErrNoDiskUUIDFound
 }

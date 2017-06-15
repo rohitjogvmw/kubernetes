@@ -25,7 +25,8 @@ var (
 		strings.ToLower(EagerZeroedThickDiskType): EagerZeroedThickDiskType,
 		strings.ToLower(ZeroedThickDiskType):      PreallocatedDiskType,
 	}
-	SCSIControllerValidType = []string{LSILogicSASControllerType, PVSCSIControllerType}
+	// SCSIControllerValidType specifies the supported SCSI controllers
+	SCSIControllerValidType = []string{LSILogicControllerType, LSILogicSASControllerType, PVSCSIControllerType}
 )
 
 // DiskformatValidOptions generates Valid Options for Diskformat

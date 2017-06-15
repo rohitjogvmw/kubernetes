@@ -70,10 +70,26 @@ func main() {
 	fmt.Printf("===============================================\n")
 
 	// Virtual Machine functions
-	isDiskAttachedTest(ctx, "[vsanDatastore] kubevols1/redis-master.vmdk")
+	isDiskAttachedTest(ctx, "[vsanDatastore] kubevols/divyentest.vmdk")
 	fmt.Printf("===============================================\n")
 
-	getVirtualDiskUUIDByPathTest(ctx, "[vsanDatastore] kubevols/redis-master.vmdk")
+	getVirtualDiskUUIDByPathTest(ctx, "[vsanDatastore] kubevols/redis-slave.vmdk")
+	fmt.Printf("===============================================\n")
+
+	getVirtualDiskControllerKeyTest(ctx, "[vsanDatastore] kubevols/redis-slave.vmdk")
+	fmt.Printf("===============================================\n")
+
+	attachDiskTest(ctx, "[vsanDatastore] kubevols/redis-master.vmdk", vclib.VolumeOptions{SCSIControllerType: vclib.PVSCSIControllerType})
+	fmt.Printf("===============================================\n")
+
+	detachDiskTest(ctx, "[vsanDatastore] kubevols/redis-master.vmdk")
+	fmt.Printf("===============================================\n")
+
+	getResourcePoolTest(ctx)
+	fmt.Printf("===============================================\n")
+
+	getAllAccessibleDatastoresTest(ctx)
+	fmt.Printf("===============================================\n")
 }
 
 // isDiskAttachedTest checks if disk is attached to the VM.
@@ -93,9 +109,50 @@ func isDiskAttachedTest(ctx context.Context, diskPath string) {
 func getVirtualDiskUUIDByPathTest(ctx context.Context, diskPath string) {
 	diskUUID, err := vmNode.GetVirtualDiskUUIDByPath(ctx, diskPath)
 	if err != nil {
-		glog.Errorf("Failed to check whether disk is attached. err: %s", err)
+		glog.Errorf("Failed to get disk UUID by path: %q for VM: %q. err: %s", diskPath, vmNode.Name(), err)
 	}
 	fmt.Printf("Disk UUID for diskPath: %q on VM: %q is %q\n", diskPath, vmNode.Name(), diskUUID)
+}
+
+// getVirtualDiskControllerKey gets the object key that denotes the controller object to which vmdk is attached.
+func getVirtualDiskControllerKeyTest(ctx context.Context, diskPath string) {
+	controllerKey, err := vmNode.GetVirtualDiskControllerKey(ctx, diskPath)
+	if err != nil {
+		glog.Errorf("Failed to get disk controller key by path: %q for VM: %q. err: %s", diskPath, vmNode.Name(), err)
+	}
+	fmt.Printf("Disk controller Key for diskPath: %q on VM: %q is %q\n", diskPath, vmNode.Name(), controllerKey)
+}
+
+func attachDiskTest(ctx context.Context, vmDiskPath string, volumeOptions vclib.VolumeOptions) {
+	diskUUID, err := vmNode.AttachDisk(ctx, vmDiskPath, volumeOptions)
+	if err != nil {
+		glog.Errorf("Failed to attach disk with path: %q for VM: %q. err: %s", vmDiskPath, vmNode.Name(), err)
+	}
+	fmt.Printf("Attached disk with diskPath: %q on VM: %q. DiskUUID is %q\n", vmDiskPath, vmNode.Name(), diskUUID)
+}
+
+func detachDiskTest(ctx context.Context, vmDiskPath string) {
+	err := vmNode.DetachDisk(ctx, vmDiskPath)
+	if err != nil {
+		glog.Errorf("Failed to detach disk with path: %q for VM: %q. err: %s", vmDiskPath, vmNode.Name(), err)
+	}
+	fmt.Printf("Detached disk with diskPath: %q on VM: %q\n", vmDiskPath, vmNode.Name())
+}
+
+func getResourcePoolTest(ctx context.Context) {
+	resourcePool, err := vmNode.GetResourcePool(ctx)
+	if err != nil {
+		glog.Errorf("Failed to get resource pool for VM: %q. err: %s", vmNode.Name(), err)
+	}
+	fmt.Printf("Resource pool for VM: %q is %+v\n", vmNode.Name(), resourcePool)
+}
+
+func getAllAccessibleDatastoresTest(ctx context.Context) {
+	dsObjList, err := vmNode.GetAllAccessibleDatastores(ctx)
+	if err != nil {
+		glog.Errorf("Failed to get all accessible datastores for VM: %q. err: %s", vmNode.Name(), err)
+	}
+	fmt.Printf("Accessible datastores are %+v for VM:%q\n", dsObjList, vmNode.Name())
 }
 
 func getVMByUUIDTest(ctx context.Context, vmUUID string) {

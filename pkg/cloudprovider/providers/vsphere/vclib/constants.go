@@ -26,6 +26,7 @@ const (
 const (
 	LogLevel                 = 4
 	DatastoreProperty        = "datastore"
+	ResourcePoolProperty     = "resourcePool"
 	DatastoreInfoProperty    = "info"
 	VirtualMachineType       = "VirtualMachine"
 	RoundTripperDefaultCount = 3
