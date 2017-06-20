@@ -17,15 +17,12 @@ limitations under the License.
 package vsphere
 
 import (
-	"context"
 	"io/ioutil"
 	"os"
 	"runtime"
 	"strings"
 
 	"fmt"
-
-	"github.com/vmware/govmomi"
 )
 
 const (
@@ -38,14 +35,9 @@ const (
 // Reads vSphere configuration from system environment and construct vSphere object
 func GetVSphere() (*VSphere, error) {
 	cfg := getVSphereConfig()
-	client, err := GetgovmomiClient(cfg)
+	vs, err := GetgovmomiClient(cfg)
 	if err != nil {
 		return nil, err
-	}
-	vs := &VSphere{
-		client:          client,
-		cfg:             cfg,
-		localInstanceID: "",
 	}
 	runtime.SetFinalizer(vs, logout)
 	return vs, nil
@@ -67,12 +59,12 @@ func getVSphereConfig() *VSphereConfig {
 	return &cfg
 }
 
-func GetgovmomiClient(cfg *VSphereConfig) (*govmomi.Client, error) {
+func GetgovmomiClient(cfg *VSphereConfig) (*VSphere, error) {
 	if cfg == nil {
 		cfg = getVSphereConfig()
 	}
-	client, err := newClient(context.TODO(), cfg)
-	return client, err
+	vs, err := newVSphere(*cfg)
+	return vs, err
 }
 
 // getvmUUID gets the BIOS UUID via the sys interface.  This UUID is known by vsphere
