@@ -113,7 +113,7 @@ func (vmdisk vmDiskManager) Delete(ctx context.Context, datastore *vclib.Datasto
 }
 
 // CreateDummyVM create a Dummy VM at specified location with given name.
-func (vmdisk vmDiskManager) createDummyVM(ctx context.Context, datacenter *vclib.Datacenter, volumeOptions vclib.VolumeOptions, vmName string) (*vclib.VirtualMachine, error) {
+func (vmdisk vmDiskManager) createDummyVM(ctx context.Context, datacenter *vclib.Datacenter, volumeOptions *vclib.VolumeOptions, vmName string) (*vclib.VirtualMachine, error) {
 	// Create a virtual machine config spec with 1 SCSI adapter.
 	virtualMachineConfigSpec := types.VirtualMachineConfigSpec{
 		Name: vmName,
