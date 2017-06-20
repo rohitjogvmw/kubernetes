@@ -8,5 +8,5 @@ import (
 type VMOptions struct {
 	WorkingDirectoryPath   string
 	WorkingDirectoryFolder *Folder
-	VmResourcePool         *object.ResourcePool
+	VMResourcePool         *object.ResourcePool
 }

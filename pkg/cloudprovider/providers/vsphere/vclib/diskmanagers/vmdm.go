@@ -13,8 +13,8 @@ import (
 // vmDiskManager implements VirtualDiskProvider interface for creating volume using Virtual Machine Reconfigure approach
 type vmDiskManager struct {
 	diskPath      string
-	volumeOptions vclib.VolumeOptions
-	vmOptions     vclib.VMOptions
+	volumeOptions *vclib.VolumeOptions
+	vmOptions     *vclib.VMOptions
 }
 
 // Create implements Disk's Create interface
@@ -140,7 +140,7 @@ func (vmdisk vmDiskManager) createDummyVM(ctx context.Context, datacenter *vclib
 		},
 	}
 
-	task, err := vmdisk.vmOptions.WorkingDirectoryFolder.CreateVM(ctx, virtualMachineConfigSpec, vmdisk.vmOptions.VmResourcePool, nil)
+	task, err := vmdisk.vmOptions.WorkingDirectoryFolder.CreateVM(ctx, virtualMachineConfigSpec, vmdisk.vmOptions.VMResourcePool, nil)
 	if err != nil {
 		glog.Errorf("Failed to create VM. err: %+v", err)
 		return nil, err

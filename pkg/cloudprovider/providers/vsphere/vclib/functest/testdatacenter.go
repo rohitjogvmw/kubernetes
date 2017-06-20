@@ -45,7 +45,7 @@ func main() {
 	defer cancel()
 
 	// Datacenter functions
-	dc, err = vclib.GetDatacenter(ctx, vSphereConnection, DatacenterName)
+	dc, err = vclib.GetDatacenter(ctx, &vSphereConnection, DatacenterName)
 
 	getVMByUUIDTest(ctx, "423787da-df6c-7306-0518-660397085b6f")
 	fmt.Printf("===============================================\n")

@@ -12,7 +12,7 @@ import (
 // virtualDiskManager implements VirtualDiskProvider Interface for creating and deleting volume using VirtualDiskManager
 type virtualDiskManager struct {
 	diskPath      string
-	volumeOptions vclib.VolumeOptions
+	volumeOptions *vclib.VolumeOptions
 }
 
 // Create implements Disk's Create interface
@@ -59,7 +59,7 @@ func (diskManager virtualDiskManager) Delete(ctx context.Context, datastore *vcl
 	virtualDiskManager := object.NewVirtualDiskManager(datastore.Client())
 
 	// Delete virtual disk
-	task, err := virtualDiskManager.DeleteVirtualDisk(ctx, diskManager.diskPath, nil)
+	task, err := virtualDiskManager.DeleteVirtualDisk(ctx, diskManager.diskPath, datastore.Datacenter.Datacenter)
 	if err != nil {
 		glog.Errorf("Failed to delete virtual disk. err: %v", err)
 		return err

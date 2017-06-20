@@ -8,8 +8,8 @@ import (
 // VirtualDisk is for the Disk Management
 type VirtualDisk struct {
 	DiskPath      string
-	VolumeOptions vclib.VolumeOptions
-	VMOptions     vclib.VMOptions
+	VolumeOptions *vclib.VolumeOptions
+	VMOptions     *vclib.VMOptions
 }
 
 // VirtualDisk Operations Const
@@ -18,7 +18,7 @@ const (
 	VirtualDiskDeleteOperation = "Delete"
 )
 
-// VirtualDiskPVirtualDiskProviderrovider defines interfaces for creating disk
+// VirtualDiskProvider defines interfaces for creating disk
 type VirtualDiskProvider interface {
 	Create(ctx context.Context, datastore *vclib.Datastore) error
 	Delete(ctx context.Context, datastore *vclib.Datastore) error
