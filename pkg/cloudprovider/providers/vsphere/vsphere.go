@@ -214,7 +214,11 @@ func newVSphere(cfg VSphereConfig) (*VSphere, error) {
 		if err != nil {
 			return nil, err
 		}
-		instanceID = vm.Name()
+		vmMoList, err := vm.Datacenter.GetVMMoList(ctx, []*vclib.VirtualMachine{vm}, []string{"name"})
+		if err != nil {
+			return nil, err
+		}
+		instanceID = vmMoList[0].Name()
 	} else {
 		instanceID = cfg.Global.VMName
 	}
