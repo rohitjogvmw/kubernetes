@@ -23,6 +23,8 @@ import (
 	"strings"
 
 	"fmt"
+
+	"k8s.io/kubernetes/pkg/cloudprovider/providers/vsphere/vclib"
 )
 
 const (
@@ -35,9 +37,14 @@ const (
 // Reads vSphere configuration from system environment and construct vSphere object
 func GetVSphere() (*VSphere, error) {
 	cfg := getVSphereConfig()
-	vs, err := GetgovmomiClient(cfg)
+	vSphereConn, err := GetgovmomiClient(cfg)
 	if err != nil {
 		return nil, err
+	}
+	vs := &VSphere{
+		conn:            vSphereConn,
+		cfg:             cfg,
+		localInstanceID: "",
 	}
 	runtime.SetFinalizer(vs, logout)
 	return vs, nil
@@ -59,12 +66,12 @@ func getVSphereConfig() *VSphereConfig {
 	return &cfg
 }
 
-func GetgovmomiClient(cfg *VSphereConfig) (*VSphere, error) {
+func GetgovmomiClient(cfg *VSphereConfig) (*vclib.VSphereConnection, error) {
 	if cfg == nil {
 		cfg = getVSphereConfig()
 	}
 	vs, err := newVSphere(*cfg)
-	return vs, err
+	return vs.conn, err
 }
 
 // getvmUUID gets the BIOS UUID via the sys interface.  This UUID is known by vsphere
