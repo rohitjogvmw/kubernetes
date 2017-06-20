@@ -167,7 +167,7 @@ func newVSphere(cfg VSphereConfig) (*VSphere, error) {
 	var err error
 	if cfg.Disk.SCSIControllerType == "" {
 		cfg.Disk.SCSIControllerType = vclib.PVSCSIControllerType
-	} else if vclib.CheckControllerSupported(cfg.Disk.SCSIControllerType) {
+	} else if !vclib.CheckControllerSupported(cfg.Disk.SCSIControllerType) {
 		glog.Errorf("%v is not a supported SCSI Controller type. Please configure 'lsilogic-sas' OR 'pvscsi'", cfg.Disk.SCSIControllerType)
 		return nil, errors.New("Controller type not supported. Please configure 'lsilogic-sas' OR 'pvscsi'")
 	}
