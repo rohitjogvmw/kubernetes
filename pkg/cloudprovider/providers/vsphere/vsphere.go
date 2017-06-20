@@ -197,7 +197,7 @@ func newVSphere(cfg VSphereConfig) (*VSphere, error) {
 	var instanceID string
 	if cfg.Global.VMName == "" {
 		// if VMName is not set in the cloud config file, each nodes (including worker nodes) need credentials to obtain VMName from vCenter
-		glog.V(vclib.LogLevel).Infof("Cannot find VMName from cloud config file, start obtaining it from vCenter")
+		glog.V(4).Infof("Cannot find VMName from cloud config file, start obtaining it from vCenter")
 		err = vSphereConn.Connect()
 		if err != nil {
 			glog.Errorf("Failed to connect to vSphere")
@@ -218,7 +218,7 @@ func newVSphere(cfg VSphereConfig) (*VSphere, error) {
 		if err != nil {
 			return nil, err
 		}
-		instanceID = vmMoList[0].Name()
+		instanceID = vmMoList[0].Name
 	} else {
 		instanceID = cfg.Global.VMName
 	}
