@@ -491,6 +491,10 @@ func (vs *VSphere) DiskIsAttached(volPath string, nodeName k8stypes.NodeName) (b
 
 // DisksAreAttached returns if disks are attached to the VM using controllers supported by the plugin.
 func (vs *VSphere) DisksAreAttached(volPaths []string, nodeName k8stypes.NodeName) (map[string]bool, error) {
+	attached := make(map[string]bool)
+	if len(volPaths) == 0 {
+		return attached, nil
+	}
 	var vSphereInstance string
 	if nodeName == "" {
 		vSphereInstance = vs.localInstanceID
@@ -519,7 +523,6 @@ func (vs *VSphere) DisksAreAttached(volPaths []string, nodeName k8stypes.NodeNam
 		glog.Errorf("Failed to get VM object for node: %q. err: +%v", nodeNameToVMName(nodeName), err)
 		return nil, err
 	}
-	attached := make(map[string]bool)
 	for _, volPath := range volPaths {
 		result, err := vm.IsDiskAttached(ctx, volPath)
 		if err == nil {
