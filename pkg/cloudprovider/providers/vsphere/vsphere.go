@@ -215,12 +215,12 @@ func newVSphere(cfg VSphereConfig) (*VSphere, error) {
 		if err != nil {
 			return nil, err
 		}
-		glog.V(1).Info("balu - The instance ID when cfg.Global.VMName is empty is %q", vm.Name())
-		vmMoList, err := vm.Datacenter.GetVMMoList(ctx, []*vclib.VirtualMachine{vm}, []string{"name"})
+		vmName, err := vm.ObjectName(ctx)
 		if err != nil {
 			return nil, err
 		}
-		instanceID = vmMoList[0].Name
+		glog.V(1).Info("balu - The instance ID when cfg.Global.VMName is non-empty is %q", vmName)
+		instanceID = vmName
 	} else {
 		glog.V(1).Info("balu - The instance ID - cfg.Global.VMName is %q", cfg.Global.VMName)
 		instanceID = cfg.Global.VMName
@@ -562,20 +562,16 @@ func (vs *VSphere) CreateVolume(volumeOptions *vclib.VolumeOptions) (volumePath 
 	var vmOptions *vclib.VMOptions
 	if volumeOptions.VSANStorageProfileData != "" || volumeOptions.StoragePolicyName != "" {
 		// Acquire a read lock to ensure multiple PVC requests can be processed simultaneously.
-		// balu - start
 		cleanUpDummyVMLock.RLock()
 		defer cleanUpDummyVMLock.RUnlock()
-		// balu - end
 		// Create a new background routine that will delete any dummy VM's that are left stale.
 		// This routine will get executed for every 5 minutes and gets initiated only once in its entire lifetime.
-		// balu - start
 		cleanUpRoutineInitLock.Lock()
 		if !cleanUpRoutineInitialized {
 			go vs.cleanUpDummyVMs(DummyVMPrefixName)
 			cleanUpRoutineInitialized = true
 		}
 		cleanUpRoutineInitLock.Unlock()
-		// balu - end
 		vmOptions, err = vs.setVMOptions(ctx, dc)
 		if err != nil {
 			return "", err
@@ -697,20 +693,19 @@ func (vs *VSphere) cleanUpDummyVMs(dummyVMPrefix string) {
 			cleanUpDummyVMLock.Unlock()
 			continue
 		}
-		vmMoList, err := dc.GetVMMoList(ctx, vmList, []string{"name"})
-		if err != nil {
-			glog.V(4).Infof("Unable to get VM Managed object list in the kubernetes cluster: %q reference with err: %+v", vs.cfg.Global.WorkingDir, err)
-			cleanUpDummyVMLock.Unlock()
-			continue
-		}
 		var dummyVMList []*vclib.VirtualMachine
-		for _, vmMo := range vmMoList {
-			if strings.HasPrefix(vmMo.Name, dummyVMPrefix) {
-				vmObj := vclib.VirtualMachine{VirtualMachine: object.NewVirtualMachine(dc.Client(), vmMo.Reference()), Datacenter: dc}
+		// Loop through VM's in the Kubernetes cluster to find dummy VM's
+		for _, vm := range vmList {
+			vmName, err := vm.ObjectName(ctx)
+			if err != nil {
+				glog.V(4).Infof("Unable to get VM name from VM: %+v with err: %+v", vm, err)
+				continue
+			}
+			if strings.HasPrefix(vmName, dummyVMPrefix) {
+				vmObj := vclib.VirtualMachine{VirtualMachine: object.NewVirtualMachine(dc.Client(), vm.Reference()), Datacenter: dc}
 				dummyVMList = append(dummyVMList, &vmObj)
 			}
 		}
-
 		for _, vm := range dummyVMList {
 			err = vm.DeleteVM(ctx)
 			if err != nil {

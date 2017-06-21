@@ -26,7 +26,6 @@ import (
 	"runtime"
 	"strings"
 
-	"github.com/golang/glog"
 	"github.com/vmware/govmomi/object"
 	"github.com/vmware/govmomi/vim25"
 	"github.com/vmware/govmomi/vim25/mo"
@@ -116,8 +115,11 @@ func getSharedDatastoresInK8SCluster(ctx context.Context, folder *vclib.Folder) 
 	index := 0
 	var sharedDatastores []*vclib.Datastore
 	for _, vm := range vmList {
-		glog.V(1).Info("[getSharedDatastoresInK8SCluster] balu - The vm name is %q", vm.Name())
-		if !strings.HasPrefix(vm.Name(), DummyVMPrefixName) {
+		vmName, err := vm.ObjectName(ctx)
+		if err != nil {
+			return nil, err
+		}
+		if !strings.HasPrefix(vmName, DummyVMPrefixName) {
 			accessibleDatastores, err := vm.GetAllAccessibleDatastores(ctx)
 			if err != nil {
 				return nil, err
