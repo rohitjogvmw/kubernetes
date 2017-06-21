@@ -17,10 +17,19 @@ limitations under the License.
 package vsphere
 
 import (
+	"context"
+	"errors"
 	"io/ioutil"
 	"os"
+	"path/filepath"
+	"regexp"
 	"runtime"
 	"strings"
+
+	"github.com/golang/glog"
+	"github.com/vmware/govmomi/object"
+	"github.com/vmware/govmomi/vim25"
+	"github.com/vmware/govmomi/vim25/mo"
 
 	"fmt"
 
@@ -96,4 +105,139 @@ func getvmUUID() (string, error) {
 	// need to add dashes, e.g. "564d395e-d807-e18a-cb25-b79f65eb2b9f"
 	uuid = fmt.Sprintf("%s-%s-%s-%s-%s", uuid[0:8], uuid[8:12], uuid[12:16], uuid[16:20], uuid[20:32])
 	return uuid, nil
+}
+
+// Get all datastores accessible for the virtual machine object.
+func getSharedDatastoresInK8SCluster(ctx context.Context, folder *vclib.Folder) ([]*vclib.Datastore, error) {
+	vmList, err := folder.GetVirtualMachines(ctx)
+	if err != nil {
+		return nil, err
+	}
+	index := 0
+	var sharedDatastores []*vclib.Datastore
+	for _, vm := range vmList {
+		glog.V(1).Info("[getSharedDatastoresInK8SCluster] balu - The vm name is %q", vm.Name())
+		if !strings.HasPrefix(vm.Name(), DummyVMPrefixName) {
+			accessibleDatastores, err := vm.GetAllAccessibleDatastores(ctx)
+			if err != nil {
+				return nil, err
+			}
+			if index == 0 {
+				sharedDatastores = accessibleDatastores
+			} else {
+				sharedDatastores = intersect(sharedDatastores, accessibleDatastores)
+				if len(sharedDatastores) == 0 {
+					return nil, fmt.Errorf("No shared datastores found in the Kubernetes cluster")
+				}
+			}
+			index++
+		}
+	}
+	return sharedDatastores, nil
+}
+
+func intersect(list1 []*vclib.Datastore, list2 []*vclib.Datastore) []*vclib.Datastore {
+	var sharedDs []*vclib.Datastore
+	for _, val1 := range list1 {
+		// Check if val1 is found in list2
+		for _, val2 := range list2 {
+			if val1.Reference().Value == val2.Reference().Value {
+				sharedDs = append(sharedDs, val1)
+				break
+			}
+		}
+	}
+	return sharedDs
+}
+
+// Get the datastores accessible for the virtual machine object.
+func getAllAccessibleDatastores(ctx context.Context, client *vim25.Client, vmMo mo.VirtualMachine) ([]string, error) {
+	host := vmMo.Summary.Runtime.Host
+	if host == nil {
+		return nil, errors.New("VM doesn't have a HostSystem")
+	}
+	var hostSystemMo mo.HostSystem
+	s := object.NewSearchIndex(client)
+	err := s.Properties(ctx, host.Reference(), []string{DatastoreProperty}, &hostSystemMo)
+	if err != nil {
+		return nil, err
+	}
+	var dsRefValues []string
+	for _, dsRef := range hostSystemMo.Datastore {
+		dsRefValues = append(dsRefValues, dsRef.Value)
+	}
+	return dsRefValues, nil
+}
+
+// getMostFreeDatastore gets the best fit compatible datastore by free space.
+func getMostFreeDatastoreName(ctx context.Context, client *vim25.Client, dsObjList []*vclib.Datastore) (string, error) {
+	dsMoList, err := dsObjList[0].Datacenter.GetDatastoreMoList(ctx, dsObjList, []string{DatastoreInfoProperty})
+	if err != nil {
+		return "", err
+	}
+	var curMax int64
+	curMax = -1
+	var index int
+	for i, dsMo := range dsMoList {
+		dsFreeSpace := dsMo.Info.GetDatastoreInfo().FreeSpace
+		if dsFreeSpace > curMax {
+			curMax = dsFreeSpace
+			index = i
+		}
+	}
+	return dsMoList[index].Info.GetDatastoreInfo().Name, nil
+}
+
+func getPbmCompatibleDatastore(ctx context.Context, client *vim25.Client, storagePolicyName string, folder *vclib.Folder) (string, error) {
+	pbmClient, err := vclib.NewPbmClient(ctx, client)
+	if err != nil {
+		return "", err
+	}
+	storagePolicyID, err := pbmClient.ProfileIDByName(ctx, storagePolicyName)
+	if err != nil {
+		return "", err
+	}
+	sharedDsList, err := getSharedDatastoresInK8SCluster(ctx, folder)
+	if err != nil {
+		return "", err
+	}
+	compatibleDatastores, err := pbmClient.GetCompatibleDatastores(ctx, storagePolicyID, sharedDsList)
+	if err != nil {
+		return "", err
+	}
+	datastore, err := getMostFreeDatastoreName(ctx, client, compatibleDatastores)
+	if err != nil {
+		return "", err
+	}
+	return datastore, err
+}
+
+func (vs *VSphere) setVMOptions(ctx context.Context, dc *vclib.Datacenter) (*vclib.VMOptions, error) {
+	var vmOptions *vclib.VMOptions
+	vm, err := dc.GetVMByPath(ctx, vs.cfg.Global.WorkingDir+"/"+vs.localInstanceID)
+	if err != nil {
+		return nil, err
+	}
+	resourcePool, err := vm.GetResourcePool(ctx)
+	if err != nil {
+		return nil, err
+	}
+	folder, err := dc.GetFolderByPath(ctx, vs.cfg.Global.WorkingDir)
+	if err != nil {
+		return nil, err
+	}
+	vmOptions.VMFolder = folder
+	vmOptions.VMResourcePool = resourcePool
+	return vmOptions, nil
+}
+
+// Remove the cluster or folder path from the vDiskPath
+// for vDiskPath [DatastoreCluster/sharedVmfs-0] kubevols/e2e-vmdk-1234.vmdk, return value is [sharedVmfs-0] kubevols/e2e-vmdk-1234.vmdk
+// for vDiskPath [sharedVmfs-0] kubevols/e2e-vmdk-1234.vmdk, return value remains same [sharedVmfs-0] kubevols/e2e-vmdk-1234.vmdk
+func removeClusterFromVDiskPath(vDiskPath string) string {
+	datastore := regexp.MustCompile("\\[(.*?)\\]").FindStringSubmatch(vDiskPath)[1]
+	if filepath.Base(datastore) != datastore {
+		vDiskPath = strings.Replace(vDiskPath, datastore, filepath.Base(datastore), 1)
+	}
+	return vDiskPath
 }

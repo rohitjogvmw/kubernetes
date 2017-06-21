@@ -23,14 +23,15 @@ import (
 	"net"
 	"path"
 	"path/filepath"
-	"regexp"
 	"runtime"
 	"strings"
 	"sync"
+	"time"
 
 	"gopkg.in/gcfg.v1"
 
 	"github.com/golang/glog"
+	"github.com/vmware/govmomi/object"
 	"golang.org/x/net/context"
 
 	k8stypes "k8s.io/apimachinery/pkg/types"
@@ -214,12 +215,14 @@ func newVSphere(cfg VSphereConfig) (*VSphere, error) {
 		if err != nil {
 			return nil, err
 		}
+		glog.V(1).Info("balu - The instance ID when cfg.Global.VMName is empty is %q", vm.Name())
 		vmMoList, err := vm.Datacenter.GetVMMoList(ctx, []*vclib.VirtualMachine{vm}, []string{"name"})
 		if err != nil {
 			return nil, err
 		}
 		instanceID = vmMoList[0].Name
 	} else {
+		glog.V(1).Info("balu - The instance ID - cfg.Global.VMName is %q", cfg.Global.VMName)
 		instanceID = cfg.Global.VMName
 	}
 	glog.V(1).Info("balu - The instance ID is %q", instanceID)
@@ -370,30 +373,7 @@ func vmNameToNodeName(vmName string) k8stypes.NodeName {
 
 // ExternalID returns the cloud provider ID of the node with the specified Name (deprecated).
 func (vs *VSphere) ExternalID(nodeName k8stypes.NodeName) (string, error) {
-	if vs.localInstanceID == nodeNameToVMName(nodeName) {
-		return vs.cfg.Global.WorkingDir + "/" + vs.localInstanceID, nil
-	}
-	// Create context
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	vm, err := vs.getVMByName(ctx, nodeName)
-	if err != nil {
-		glog.Errorf("Failed to get VM object for node: %q. err: +%v", nodeNameToVMName(nodeName), err)
-		return "", err
-	}
-	vmMoList, err := vm.Datacenter.GetVMMoList(ctx, []*vclib.VirtualMachine{vm}, []string{"summary"})
-	if err != nil {
-		return "", err
-	}
-	if vmMoList[0].Summary.Runtime.PowerState == ActivePowerState {
-		return vm.InventoryPath, nil
-	}
-	if vmMoList[0].Summary.Config.Template == false {
-		glog.Warningf("VM %s, is not in %s state", nodeName, ActivePowerState)
-	} else {
-		glog.Warningf("VM %s, is a template", nodeName)
-	}
-	return "", cloudprovider.InstanceNotFound
+	return vs.InstanceID(nodeName)
 }
 
 // InstanceID returns the cloud provider ID of the node with the specified Name.
@@ -576,42 +556,37 @@ func (vs *VSphere) CreateVolume(volumeOptions *vclib.VolumeOptions) (volumePath 
 	if err != nil {
 		return "", err
 	}
-	ds, err := dc.GetDatastoreByName(ctx, datastore)
-	if err != nil {
-		return "", err
-	}
-	vmOptions := vclib.VMOptions{}
+	var vmOptions *vclib.VMOptions
 	if volumeOptions.VSANStorageProfileData != "" || volumeOptions.StoragePolicyName != "" {
 		// Acquire a read lock to ensure multiple PVC requests can be processed simultaneously.
 		// balu - start
-		// cleanUpDummyVMLock.RLock()
-		// defer cleanUpDummyVMLock.RUnlock()
+		cleanUpDummyVMLock.RLock()
+		defer cleanUpDummyVMLock.RUnlock()
 		// balu - end
 		// Create a new background routine that will delete any dummy VM's that are left stale.
 		// This routine will get executed for every 5 minutes and gets initiated only once in its entire lifetime.
 		// balu - start
-		// cleanUpRoutineInitLock.Lock()
-		// if !cleanUpRoutineInitialized {
-		// 	go vs.cleanUpDummyVMs(DummyVMPrefixName)
-		// 	cleanUpRoutineInitialized = true
-		// }
-		// cleanUpRoutineInitLock.Unlock()
+		cleanUpRoutineInitLock.Lock()
+		if !cleanUpRoutineInitialized {
+			go vs.cleanUpDummyVMs(DummyVMPrefixName)
+			cleanUpRoutineInitialized = true
+		}
+		cleanUpRoutineInitLock.Unlock()
 		// balu - end
-		vm, err := dc.GetVMByPath(ctx, vs.cfg.Global.WorkingDir+"/"+vs.localInstanceID)
+		vmOptions, err = vs.setVMOptions(ctx, dc)
 		if err != nil {
 			return "", err
 		}
-		resourcePool, err := vm.GetResourcePool(ctx)
+	}
+	if volumeOptions.StoragePolicyName != "" && volumeOptions.Datastore == "" {
+		datastore, err = getPbmCompatibleDatastore(ctx, dc.Client(), volumeOptions.StoragePolicyName, vmOptions.VMFolder)
 		if err != nil {
 			return "", err
 		}
-		folder, err := dc.GetFolderByPath(ctx, vs.cfg.Global.WorkingDir)
-		if err != nil {
-			return "", err
-		}
-		vmOptions.WorkingDirectoryPath = vs.cfg.Global.WorkingDir
-		vmOptions.WorkingDirectoryFolder = folder
-		vmOptions.VMResourcePool = resourcePool
+	}
+	ds, err := dc.GetDatastoreByName(ctx, datastore)
+	if err != nil {
+		return "", err
 	}
 	kubeVolsPath := filepath.Clean(ds.Path(VolDir)) + "/"
 	err = ds.CreateDirectory(ctx, kubeVolsPath, false)
@@ -622,7 +597,7 @@ func (vs *VSphere) CreateVolume(volumeOptions *vclib.VolumeOptions) (volumePath 
 	disk := diskmanagers.VirtualDisk{
 		DiskPath:      volumePath,
 		VolumeOptions: volumeOptions,
-		VMOptions:     &vmOptions,
+		VMOptions:     vmOptions,
 	}
 	err = disk.Create(ctx, ds)
 	if err != nil {
@@ -689,60 +664,56 @@ func (vs *VSphere) NodeExists(nodeName k8stypes.NodeName) (bool, error) {
 }
 
 // A background routine which will be responsible for deleting stale dummy VM's.
-// func (vs *VSphere) cleanUpDummyVMs(dummyVMPrefix string) {
-// 	// Create context
-// 	ctx, cancel := context.WithCancel(context.Background())
-// 	defer cancel()
-// 	for {
-// 		time.Sleep(CleanUpDummyVMRoutine_Interval * time.Minute)
-// 		// Ensure client is logged in and session is valid
-// 		err := vs.conn.Connect()
-// 		if err != nil {
-// 			return nil, err
-// 		}
-// 		dc, err := vclib.GetDatacenter(ctx, vs.conn, vs.cfg.Global.Datacenter)
-// 		if err != nil {
-// 			return nil, err
-// 		}
-// 		// Get the folder reference for global working directory where the dummy VM needs to be created.
-// 		vmFolder, err := dc.GetFolderByPath(ctx, vs.cfg.Global.WorkingDir)
-// 		if err != nil {
-// 			glog.V(4).Infof("Unable to get the kubernetes folder: %q reference with err: %+v", vs.cfg.Global.WorkingDir, err)
-// 			continue
-// 		}
-// 		// A write lock is acquired to make sure the cleanUp routine doesn't delete any VM's created by ongoing PVC requests.
-// 		cleanUpDummyVMLock.Lock()
-// 		vmMoList, err := vs.GetVMsInsideFolder(ctx, vmFolder, []string{NameProperty})
-// 		if err != nil {
-// 			glog.V(4).Infof("Unable to get VM list in the kubernetes cluster: %q reference with err: %+v", vs.cfg.Global.WorkingDir, err)
-// 			cleanUpDummyVMLock.Unlock()
-// 			continue
-// 		}
-// 		var dummyVMRefList []*object.VirtualMachine
-// 		for _, vmMo := range vmMoList {
-// 			if strings.HasPrefix(vmMo.Name, dummyVMPrefix) {
-// 				dummyVMRefList = append(dummyVMRefList, object.NewVirtualMachine(vs.client.Client, vmMo.Reference()))
-// 			}
-// 		}
+func (vs *VSphere) cleanUpDummyVMs(dummyVMPrefix string) {
+	// Create context
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	for {
+		time.Sleep(CleanUpDummyVMRoutineInterval * time.Minute)
+		// Ensure client is logged in and session is valid
+		err := vs.conn.Connect()
+		if err != nil {
+			continue
+		}
+		dc, err := vclib.GetDatacenter(ctx, vs.conn, vs.cfg.Global.Datacenter)
+		if err != nil {
+			continue
+		}
+		// Get the folder reference for global working directory where the dummy VM needs to be created.
+		vmFolder, err := dc.GetFolderByPath(ctx, vs.cfg.Global.WorkingDir)
+		if err != nil {
+			glog.V(4).Infof("Unable to get the kubernetes folder: %q reference with err: %+v", vs.cfg.Global.WorkingDir, err)
+			continue
+		}
+		// A write lock is acquired to make sure the cleanUp routine doesn't delete any VM's created by ongoing PVC requests.
+		cleanUpDummyVMLock.Lock()
+		vmList, err := vmFolder.GetVirtualMachines(ctx)
+		if err != nil {
+			glog.V(4).Infof("Unable to get VM list in the kubernetes cluster: %q reference with err: %+v", vs.cfg.Global.WorkingDir, err)
+			cleanUpDummyVMLock.Unlock()
+			continue
+		}
+		vmMoList, err := dc.GetVMMoList(ctx, vmList, []string{"name"})
+		if err != nil {
+			glog.V(4).Infof("Unable to get VM Managed object list in the kubernetes cluster: %q reference with err: %+v", vs.cfg.Global.WorkingDir, err)
+			cleanUpDummyVMLock.Unlock()
+			continue
+		}
+		var dummyVMList []*vclib.VirtualMachine
+		for _, vmMo := range vmMoList {
+			if strings.HasPrefix(vmMo.Name, dummyVMPrefix) {
+				vmObj := vclib.VirtualMachine{VirtualMachine: object.NewVirtualMachine(dc.Client(), vmMo.Reference()), Datacenter: dc}
+				dummyVMList = append(dummyVMList, &vmObj)
+			}
+		}
 
-// 		for _, dummyVMRef := range dummyVMRefList {
-// 			err = deleteVM(ctx, dummyVMRef)
-// 			if err != nil {
-// 				glog.V(4).Infof("Unable to delete dummy VM: %q with err: %+v", dummyVMRef.Name(), err)
-// 				continue
-// 			}
-// 		}
-// 		cleanUpDummyVMLock.Unlock()
-// 	}
-// }
-
-// Remove the cluster or folder path from the vDiskPath
-// for vDiskPath [DatastoreCluster/sharedVmfs-0] kubevols/e2e-vmdk-1234.vmdk, return value is [sharedVmfs-0] kubevols/e2e-vmdk-1234.vmdk
-// for vDiskPath [sharedVmfs-0] kubevols/e2e-vmdk-1234.vmdk, return value remains same [sharedVmfs-0] kubevols/e2e-vmdk-1234.vmdk
-func removeClusterFromVDiskPath(vDiskPath string) string {
-	datastore := regexp.MustCompile("\\[(.*?)\\]").FindStringSubmatch(vDiskPath)[1]
-	if filepath.Base(datastore) != datastore {
-		vDiskPath = strings.Replace(vDiskPath, datastore, filepath.Base(datastore), 1)
+		for _, vm := range dummyVMList {
+			err = vm.DeleteVM(ctx)
+			if err != nil {
+				glog.V(4).Infof("Unable to delete dummy VM: %q with err: %+v", vm.Name(), err)
+				continue
+			}
+		}
+		cleanUpDummyVMLock.Unlock()
 	}
-	return vDiskPath
 }
