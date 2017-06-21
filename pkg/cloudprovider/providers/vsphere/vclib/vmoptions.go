@@ -6,7 +6,6 @@ import (
 
 // VMOptions provides helper objects for provisioning volume with SPBM Policy
 type VMOptions struct {
-	WorkingDirectoryPath   string
-	WorkingDirectoryFolder *Folder
-	VMResourcePool         *object.ResourcePool
+	VMFolder       *Folder
+	VMResourcePool *object.ResourcePool
 }
