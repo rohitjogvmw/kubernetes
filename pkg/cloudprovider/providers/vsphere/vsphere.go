@@ -590,7 +590,8 @@ func (vs *VSphere) CreateVolume(volumeOptions *vclib.VolumeOptions) (volumePath 
 	}
 	kubeVolsPath := filepath.Clean(ds.Path(VolDir)) + "/"
 	err = ds.CreateDirectory(ctx, kubeVolsPath, false)
-	if err != nil {
+	if err != nil && err != vclib.ErrFileAlreadyExist {
+		glog.Errorf("Cannot create dir %#v. err %s", kubeVolsPath, err)
 		return "", err
 	}
 	volumePath = kubeVolsPath + volumeOptions.Name + ".vmdk"
