@@ -185,6 +185,7 @@ func newVSphere(cfg VSphereConfig) (*VSphere, error) {
 		// This needs root privileges on the host, and will fail otherwise.
 		cfg.Global.VMUUID, err = getvmUUID()
 		if err != nil {
+			glog.Errorf("Failed to get VM UUID. err: %+v", err)
 			return nil, err
 		}
 	}
@@ -645,7 +646,7 @@ func (vs *VSphere) NodeExists(nodeName k8stypes.NodeName) (bool, error) {
 	defer cancel()
 	vm, err := vs.getVMByName(ctx, nodeName)
 	if err != nil {
-		glog.Errorf("Failed to get VM object for node: %q. err: +%v", nodeNameToVMName(nodeName), err)
+		glog.Errorf("Failed to get VM object for node: %s. err: +%v", nodeNameToVMName(nodeName), err)
 		return false, err
 	}
 	vmMoList, err := vm.Datacenter.GetVMMoList(ctx, []*vclib.VirtualMachine{vm}, []string{"summary"})
@@ -673,23 +674,25 @@ func (vs *VSphere) cleanUpDummyVMs(dummyVMPrefix string) {
 		// Ensure client is logged in and session is valid
 		err := vs.conn.Connect()
 		if err != nil {
+			glog.V(4).Infof("Failed to connect to VC with err: %+v. Retrying again...", err)
 			continue
 		}
 		dc, err := vclib.GetDatacenter(ctx, vs.conn, vs.cfg.Global.Datacenter)
 		if err != nil {
+			glog.V(4).Infof("Failed to get the datacenter: %s from VC. err: %+v", vs.cfg.Global.Datacenter, err)
 			continue
 		}
 		// Get the folder reference for global working directory where the dummy VM needs to be created.
 		vmFolder, err := dc.GetFolderByPath(ctx, vs.cfg.Global.WorkingDir)
 		if err != nil {
-			glog.V(4).Infof("Unable to get the kubernetes folder: %q reference with err: %+v", vs.cfg.Global.WorkingDir, err)
+			glog.V(4).Infof("Unable to get the kubernetes folder: %q reference. err: %+v", vs.cfg.Global.WorkingDir, err)
 			continue
 		}
 		// A write lock is acquired to make sure the cleanUp routine doesn't delete any VM's created by ongoing PVC requests.
 		cleanUpDummyVMLock.Lock()
 		vmList, err := vmFolder.GetVirtualMachines(ctx)
 		if err != nil {
-			glog.V(4).Infof("Unable to get VM list in the kubernetes cluster: %q reference with err: %+v", vs.cfg.Global.WorkingDir, err)
+			glog.V(4).Infof("Unable to get VM list in the kubernetes cluster: %q. err: %+v", vs.cfg.Global.WorkingDir, err)
 			cleanUpDummyVMLock.Unlock()
 			continue
 		}
@@ -698,7 +701,7 @@ func (vs *VSphere) cleanUpDummyVMs(dummyVMPrefix string) {
 		for _, vm := range vmList {
 			vmName, err := vm.ObjectName(ctx)
 			if err != nil {
-				glog.V(4).Infof("Unable to get VM name from VM: %+v with err: %+v", vm, err)
+				glog.V(4).Infof("Unable to get name from VM with err: %+v", err)
 				continue
 			}
 			if strings.HasPrefix(vmName, dummyVMPrefix) {
@@ -709,7 +712,7 @@ func (vs *VSphere) cleanUpDummyVMs(dummyVMPrefix string) {
 		for _, vm := range dummyVMList {
 			err = vm.DeleteVM(ctx)
 			if err != nil {
-				glog.V(4).Infof("Unable to delete dummy VM: %q with err: %+v", vm.Name(), err)
+				glog.V(4).Infof("Unable to delete dummy VM with err: %+v", err)
 				continue
 			}
 		}
