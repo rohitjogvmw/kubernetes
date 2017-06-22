@@ -3,7 +3,6 @@ package diskmanagers
 import (
 	"fmt"
 
-	"github.com/golang/glog"
 	"golang.org/x/net/context"
 	"k8s.io/kubernetes/pkg/cloudprovider/providers/vsphere/vclib"
 )
@@ -48,10 +47,10 @@ func (virtualDisk *VirtualDisk) Create(ctx context.Context, datastore *vclib.Dat
 	if virtualDisk.VolumeOptions.DiskFormat == "" {
 		virtualDisk.VolumeOptions.DiskFormat = vclib.ThinDiskType
 	}
-	if !virtualDisk.VolumeOptions.VerifyVolumeOptions() {
-		glog.Error("VolumeOptions verification failed. volumeOptions: ", virtualDisk.VolumeOptions)
-		return vclib.ErrInvalidVolumeOptions
-	}
+	// if !virtualDisk.VolumeOptions.VerifyVolumeOptions() {
+	// 	glog.Error("VolumeOptions verification failed. volumeOptions: ", virtualDisk.VolumeOptions)
+	// 	return vclib.ErrInvalidVolumeOptions
+	// }
 	if virtualDisk.VolumeOptions.StoragePolicyID != "" && virtualDisk.VolumeOptions.StoragePolicyName != "" {
 		return fmt.Errorf("Storage Policy ID and Storage Policy Name both set, Please set only one parameter")
 	}
