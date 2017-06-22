@@ -588,6 +588,7 @@ func (vs *VSphere) CreateVolume(volumeOptions *vclib.VolumeOptions) (volumePath 
 	if err != nil {
 		return "", err
 	}
+	volumeOptions.Datastore = datastore
 	kubeVolsPath := filepath.Clean(ds.Path(VolDir)) + "/"
 	err = ds.CreateDirectory(ctx, kubeVolsPath, false)
 	if err != nil && err != vclib.ErrFileAlreadyExist {
