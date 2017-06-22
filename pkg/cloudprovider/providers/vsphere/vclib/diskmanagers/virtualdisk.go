@@ -1,6 +1,8 @@
 package diskmanagers
 
 import (
+	"fmt"
+
 	"github.com/golang/glog"
 	"golang.org/x/net/context"
 	"k8s.io/kubernetes/pkg/cloudprovider/providers/vsphere/vclib"
@@ -41,10 +43,8 @@ func getDiskManager(disk *VirtualDisk, diskOperation string) VirtualDiskProvider
 	return diskProvider
 }
 
+// Create gets appropriate disk manager and calls respective create method
 func (virtualDisk *VirtualDisk) Create(ctx context.Context, datastore *vclib.Datastore) error {
-	if virtualDisk.VolumeOptions.SCSIControllerType == "" {
-		virtualDisk.VolumeOptions.SCSIControllerType = vclib.PVSCSIControllerType
-	}
 	if virtualDisk.VolumeOptions.DiskFormat == "" {
 		virtualDisk.VolumeOptions.DiskFormat = vclib.ThinDiskType
 	}
@@ -52,9 +52,13 @@ func (virtualDisk *VirtualDisk) Create(ctx context.Context, datastore *vclib.Dat
 		glog.Error("VolumeOptions verification failed. volumeOptions: ", virtualDisk.VolumeOptions)
 		return vclib.ErrInvalidVolumeOptions
 	}
+	if virtualDisk.VolumeOptions.StoragePolicyID != "" && virtualDisk.VolumeOptions.StoragePolicyName != "" {
+		return fmt.Errorf("Storage Policy ID and Storage Policy Name both set, Please set only one parameter")
+	}
 	return getDiskManager(virtualDisk, VirtualDiskCreateOperation).Create(ctx, datastore)
 }
 
+// Delete gets appropriate disk manager and calls respective delete method
 func (virtualDisk *VirtualDisk) Delete(ctx context.Context, datastore *vclib.Datastore) error {
 	return getDiskManager(virtualDisk, VirtualDiskDeleteOperation).Delete(ctx, datastore)
 }

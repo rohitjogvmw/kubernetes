@@ -203,7 +203,7 @@ func getPbmCompatibleDatastore(ctx context.Context, client *vim25.Client, storag
 	if err != nil {
 		return "", err
 	}
-	compatibleDatastores, err := pbmClient.GetCompatibleDatastores(ctx, storagePolicyID, sharedDsList)
+	compatibleDatastores, _, err := pbmClient.GetCompatibleDatastores(ctx, storagePolicyID, sharedDsList)
 	if err != nil {
 		return "", err
 	}
@@ -215,7 +215,7 @@ func getPbmCompatibleDatastore(ctx context.Context, client *vim25.Client, storag
 }
 
 func (vs *VSphere) setVMOptions(ctx context.Context, dc *vclib.Datacenter) (*vclib.VMOptions, error) {
-	var vmOptions *vclib.VMOptions
+	var vmOptions vclib.VMOptions
 	vm, err := dc.GetVMByPath(ctx, vs.cfg.Global.WorkingDir+"/"+vs.localInstanceID)
 	if err != nil {
 		return nil, err
@@ -230,7 +230,7 @@ func (vs *VSphere) setVMOptions(ctx context.Context, dc *vclib.Datacenter) (*vcl
 	}
 	vmOptions.VMFolder = folder
 	vmOptions.VMResourcePool = resourcePool
-	return vmOptions, nil
+	return &vmOptions, nil
 }
 
 // Remove the cluster or folder path from the vDiskPath

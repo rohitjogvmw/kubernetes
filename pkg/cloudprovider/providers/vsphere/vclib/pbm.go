@@ -26,30 +26,88 @@ func NewPbmClient(ctx context.Context, client *vim25.Client) (*PbmClient, error)
 	return &PbmClient{pbmClient}, nil
 }
 
-// GetCompatibleDatastores filters and returns compatible list of datastores for given storage policy id
-func (pbmClient *PbmClient) GetCompatibleDatastores(ctx context.Context, storagePolicyID string, datastores []*Datastore) ([]*Datastore, error) {
-	var compatibilityResult pbm.PlacementCompatibilityResult
-	compatibilityResult, err := pbmClient.getPlacementCompatibilityResult(ctx, storagePolicyID, datastores)
+// IsDataStoreCompatible check if the datastores is compatible for given storage policy id
+// if datastore is not compatible with policy, fault message with the Datastore Name is returned
+func (pbmClient *PbmClient) IsDatastoreCompatible(ctx context.Context, storagePolicyID string, datastore *Datastore) (bool, string, error) {
+	faultMessage := ""
+	placementHub := pbmtypes.PbmPlacementHub{
+		HubType: datastore.Reference().Type,
+		HubId:   datastore.Reference().Value,
+	}
+	hubs := []pbmtypes.PbmPlacementHub{placementHub}
+	req := []pbmtypes.BasePbmPlacementRequirement{
+		&pbmtypes.PbmPlacementCapabilityProfileRequirement{
+			ProfileId: pbmtypes.PbmProfileId{
+				UniqueId: storagePolicyID,
+			},
+		},
+	}
+	compatibilityResult, err := pbmClient.CheckRequirements(ctx, hubs, nil, req)
 	if err != nil {
-		glog.Errorf("Error occurred while getting Placement Compatibility Result. err %+v", err)
-		return nil, err
+		glog.Errorf("Error occurred for CheckRequirements call. err %+v", err)
+		return false, "", err
 	}
+	if compatibilityResult != nil && len(compatibilityResult) > 0 {
+		compatibleHubs := compatibilityResult.CompatibleDatastores()
+		if compatibleHubs != nil && len(compatibleHubs) > 0 {
+			return true, "", nil
+		}
+		dsName, err := datastore.ObjectName(ctx)
+		if err != nil {
+			glog.Errorf("Failed to get datastore ObjectName")
+			return false, "", err
+		}
+		if compatibilityResult[0].Error[0].LocalizedMessage == "" {
+			faultMessage = "Datastore: " + dsName + " not compatible with the storage policy."
+		} else {
+			faultMessage = "Datastore: " + dsName + " not compatible with the storage policy. LocalizedMessage: " + compatibilityResult[0].Error[0].LocalizedMessage + "\n"
+		}
+		return false, faultMessage, nil
+	}
+	return false, "", fmt.Errorf("compatibilityResult is nil or empty")
+}
+
+// GetCompatibleDatastores filters and returns compatible list of datastores for given storage policy id
+// For Non Compatible Datastores, fault message with the Datastore Name is also returned
+func (pbmClient *PbmClient) GetCompatibleDatastores(ctx context.Context, storagePolicyID string, datastores []*Datastore) ([]*Datastore, string, error) {
+	var (
+		dsMorNameMap                                = getDsMorNameMap(ctx, datastores)
+		localizedMessagesForNotCompatibleDatastores = ""
+	)
+	compatibilityResult, err := pbmClient.GetPlacementCompatibilityResult(ctx, storagePolicyID, datastores)
 	compatibleHubs := compatibilityResult.CompatibleDatastores()
-	// Return an error if there are no compatible datastores.
-	if len(compatibleHubs) < 1 {
-		glog.Errorf("There are no compatible datastores that satisfy the storage policy requirements")
-		return nil, fmt.Errorf("There are no compatible datastores that satisfy the storage policy requirements")
-	}
 
 	var compatibleDataStoreList []*Datastore
 	for _, hub := range compatibleHubs {
-		compatibleDataStoreList = append(compatibleDataStoreList, getDataStoreForPlacementHub(datastores, hub))
+		compatibleDataStoreList = append(compatibleDataStoreList, getDatastoreFromPlacementHub(datastores, hub))
 	}
-	return compatibleDataStoreList, nil
+	for _, res := range compatibilityResult {
+		for _, err := range res.Error {
+			dsName := dsMorNameMap[res.Hub.HubId]
+			localizedMessage := ""
+			if err.LocalizedMessage != "" {
+				localizedMessage = "Datastore: " + dsName + " not compatible with the storage policy. LocalizedMessage: " + err.LocalizedMessage + "\n"
+			} else {
+				localizedMessage = "Datastore: " + dsName + " not compatible with the storage policy. \n"
+			}
+			localizedMessagesForNotCompatibleDatastores += localizedMessage
+		}
+	}
+	if err != nil {
+		glog.Errorf("Error occurred while getting Placement Compatibility Result. err %+v", err)
+		return nil, localizedMessagesForNotCompatibleDatastores, err
+	}
+
+	// Return an error if there are no compatible datastores.
+	if len(compatibleHubs) < 1 {
+		glog.Errorf("No compatible datastores found that satisfy the storage policy requirements")
+		return nil, localizedMessagesForNotCompatibleDatastores, fmt.Errorf("No compatible datastores found that satisfy the storage policy requirements")
+	}
+	return compatibleDataStoreList, localizedMessagesForNotCompatibleDatastores, nil
 }
 
 // get placement compatibility result based on storage policy requirements.
-func (pbmClient *PbmClient) getPlacementCompatibilityResult(ctx context.Context, storagePolicyID string, datastore []*Datastore) (pbm.PlacementCompatibilityResult, error) {
+func (pbmClient *PbmClient) GetPlacementCompatibilityResult(ctx context.Context, storagePolicyID string, datastore []*Datastore) (pbm.PlacementCompatibilityResult, error) {
 	var hubs []pbmtypes.PbmPlacementHub
 	for _, ds := range datastore {
 		hubs = append(hubs, pbmtypes.PbmPlacementHub{
@@ -73,11 +131,25 @@ func (pbmClient *PbmClient) getPlacementCompatibilityResult(ctx context.Context,
 }
 
 // getDataStoreForPlacementHub returns matching datastore associated with given pbmPlacementHub
-func getDataStoreForPlacementHub(datastore []*Datastore, pbmPlacementHub pbmtypes.PbmPlacementHub) *Datastore {
+func getDatastoreFromPlacementHub(datastore []*Datastore, pbmPlacementHub pbmtypes.PbmPlacementHub) *Datastore {
 	for _, ds := range datastore {
 		if ds.Reference().Type == pbmPlacementHub.HubType && ds.Reference().Value == pbmPlacementHub.HubId {
 			return ds
 		}
 	}
 	return nil
+}
+
+// getDsMorNameMap returns map of ds Mor and Datastore Object Name
+func getDsMorNameMap(ctx context.Context, datastores []*Datastore) map[string]string {
+	dsMorNameMap := make(map[string]string)
+	for _, ds := range datastores {
+		dsObjectName, err := ds.ObjectName(ctx)
+		if err == nil {
+			dsMorNameMap[ds.Reference().Value] = dsObjectName
+		} else {
+			glog.Errorf("Error occurred while getting datastore object name. err %+v", err)
+		}
+	}
+	return dsMorNameMap
 }
