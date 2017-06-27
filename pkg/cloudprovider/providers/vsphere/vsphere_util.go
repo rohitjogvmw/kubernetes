@@ -273,7 +273,7 @@ func (vs *VSphere) cleanUpDummyVMs(dummyVMPrefix string) {
 		}
 		// A write lock is acquired to make sure the cleanUp routine doesn't delete any VM's created by ongoing PVC requests.
 		defer cleanUpDummyVMLock.Lock()
-		err = diskmanagers.CleanUpDummyVMs(ctx, vmFolder)
+		err = diskmanagers.CleanUpDummyVMs(ctx, vmFolder, dc)
 		if err != nil {
 			glog.V(4).Infof("Unable to clean up dummy VM's in the kubernetes cluster: %q. err: %+v", vs.cfg.Global.WorkingDir, err)
 		}
