@@ -26,12 +26,10 @@ import (
 	"runtime"
 	"strings"
 	"sync"
-	"time"
 
 	"gopkg.in/gcfg.v1"
 
 	"github.com/golang/glog"
-	"github.com/vmware/govmomi/object"
 	"golang.org/x/net/context"
 
 	k8stypes "k8s.io/apimachinery/pkg/types"
@@ -220,13 +218,10 @@ func newVSphere(cfg VSphereConfig) (*VSphere, error) {
 		if err != nil {
 			return nil, err
 		}
-		glog.V(1).Info("balu - The instance ID when cfg.Global.VMName is non-empty is %q", vmName)
 		instanceID = vmName
 	} else {
-		glog.V(1).Info("balu - The instance ID - cfg.Global.VMName is %q", cfg.Global.VMName)
 		instanceID = cfg.Global.VMName
 	}
-	glog.V(1).Info("balu - The instance ID is %q", instanceID)
 	vs := VSphere{
 		conn:            &vSphereConn,
 		cfg:             &cfg,
@@ -663,60 +658,4 @@ func (vs *VSphere) NodeExists(nodeName k8stypes.NodeName) (bool, error) {
 		glog.Warningf("VM %s, is a template", nodeName)
 	}
 	return false, nil
-}
-
-// A background routine which will be responsible for deleting stale dummy VM's.
-func (vs *VSphere) cleanUpDummyVMs(dummyVMPrefix string) {
-	// Create context
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	for {
-		time.Sleep(CleanUpDummyVMRoutineInterval * time.Minute)
-		// Ensure client is logged in and session is valid
-		err := vs.conn.Connect()
-		if err != nil {
-			glog.V(4).Infof("Failed to connect to VC with err: %+v. Retrying again...", err)
-			continue
-		}
-		dc, err := vclib.GetDatacenter(ctx, vs.conn, vs.cfg.Global.Datacenter)
-		if err != nil {
-			glog.V(4).Infof("Failed to get the datacenter: %s from VC. err: %+v", vs.cfg.Global.Datacenter, err)
-			continue
-		}
-		// Get the folder reference for global working directory where the dummy VM needs to be created.
-		vmFolder, err := dc.GetFolderByPath(ctx, vs.cfg.Global.WorkingDir)
-		if err != nil {
-			glog.V(4).Infof("Unable to get the kubernetes folder: %q reference. err: %+v", vs.cfg.Global.WorkingDir, err)
-			continue
-		}
-		// A write lock is acquired to make sure the cleanUp routine doesn't delete any VM's created by ongoing PVC requests.
-		cleanUpDummyVMLock.Lock()
-		vmList, err := vmFolder.GetVirtualMachines(ctx)
-		if err != nil {
-			glog.V(4).Infof("Unable to get VM list in the kubernetes cluster: %q. err: %+v", vs.cfg.Global.WorkingDir, err)
-			cleanUpDummyVMLock.Unlock()
-			continue
-		}
-		var dummyVMList []*vclib.VirtualMachine
-		// Loop through VM's in the Kubernetes cluster to find dummy VM's
-		for _, vm := range vmList {
-			vmName, err := vm.ObjectName(ctx)
-			if err != nil {
-				glog.V(4).Infof("Unable to get name from VM with err: %+v", err)
-				continue
-			}
-			if strings.HasPrefix(vmName, dummyVMPrefix) {
-				vmObj := vclib.VirtualMachine{VirtualMachine: object.NewVirtualMachine(dc.Client(), vm.Reference()), Datacenter: dc}
-				dummyVMList = append(dummyVMList, &vmObj)
-			}
-		}
-		for _, vm := range dummyVMList {
-			err = vm.DeleteVM(ctx)
-			if err != nil {
-				glog.V(4).Infof("Unable to delete dummy VM with err: %+v", err)
-				continue
-			}
-		}
-		cleanUpDummyVMLock.Unlock()
-	}
 }
