@@ -114,7 +114,7 @@ type VSphereConfig struct {
 type Volumes interface {
 	// AttachDisk attaches given disk to given node. Current node
 	// is used when nodeName is empty string.
-	AttachDisk(vmDiskPath string, storagePolicyID string, nodeName k8stypes.NodeName) (diskID string, diskUUID string, err error)
+	AttachDisk(vmDiskPath string, storagePolicyID string, nodeName k8stypes.NodeName) (diskUUID string, err error)
 
 	// DetachDisk detaches given disk to given node. Current node
 	// is used when nodeName is empty string.
@@ -442,12 +442,46 @@ func (vs *VSphere) ScrubDNS(nameservers, searches []string) (nsOut, srchOut []st
 }
 
 // AttachDisk attaches given virtual disk volume to the compute running kubelet.
-func (vs *VSphere) AttachDisk(vmDiskPath string, storagePolicyID string, nodeName k8stypes.NodeName) (diskID string, diskUUID string, err error) {
-	return "", "", nil
+func (vs *VSphere) AttachDisk(vmDiskPath string, storagePolicyID string, nodeName k8stypes.NodeName) (diskUUID string, err error) {
+	if nodeName == "" {
+		nodeName = vmNameToNodeName(vs.localInstanceID)
+	}
+	// Create context
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	vm, err := vs.getVMByName(ctx, nodeName)
+	if err != nil {
+		glog.Errorf("Failed to get VM object for node: %q. err: +%v", nodeNameToVMName(nodeName), err)
+		return "", err
+	}
+	// balu - check for datastore cluster
+	diskUUID, err = vm.AttachDisk(ctx, vmDiskPath, &vclib.VolumeOptions{SCSIControllerType: vclib.PVSCSIControllerType, StoragePolicyID: storagePolicyID})
+	if err != nil {
+		glog.Errorf("Failed to attach disk: %s for node: %s. err: +%v", vmDiskPath, nodeNameToVMName(nodeName), err)
+		return "", err
+	}
+	return diskUUID, nil
 }
 
 // DetachDisk detaches given virtual disk volume from the compute running kubelet.
 func (vs *VSphere) DetachDisk(volPath string, nodeName k8stypes.NodeName) error {
+	if nodeName == "" {
+		nodeName = vmNameToNodeName(vs.localInstanceID)
+	}
+	// Create context
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	vm, err := vs.getVMByName(ctx, nodeName)
+	if err != nil {
+		glog.Errorf("Failed to get VM object for node: %q. err: +%v", nodeNameToVMName(nodeName), err)
+		return err
+	}
+	// balu - check for datastore cluster
+	err = vm.DetachDisk(ctx, volPath)
+	if err != nil {
+		glog.Errorf("Failed to detach disk: %s for node: %s. err: +%v", volPath, nodeNameToVMName(nodeName), err)
+		return err
+	}
 	return nil
 }
 
@@ -621,7 +655,6 @@ func (vs *VSphere) DeleteVolume(vmDiskPath string) error {
 	if err != nil {
 		return err
 	}
-	vmDiskPath = removeClusterFromVDiskPath(vmDiskPath)
 	disk := diskmanagers.VirtualDisk{
 		DiskPath:      vmDiskPath,
 		VolumeOptions: &vclib.VolumeOptions{},

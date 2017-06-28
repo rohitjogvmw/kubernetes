@@ -21,8 +21,6 @@ import (
 	"errors"
 	"io/ioutil"
 	"os"
-	"path/filepath"
-	"regexp"
 	"runtime"
 	"strings"
 	"time"
@@ -234,17 +232,6 @@ func (vs *VSphere) setVMOptions(ctx context.Context, dc *vclib.Datacenter) (*vcl
 	vmOptions.VMFolder = folder
 	vmOptions.VMResourcePool = resourcePool
 	return &vmOptions, nil
-}
-
-// Remove the cluster or folder path from the vDiskPath
-// for vDiskPath [DatastoreCluster/sharedVmfs-0] kubevols/e2e-vmdk-1234.vmdk, return value is [sharedVmfs-0] kubevols/e2e-vmdk-1234.vmdk
-// for vDiskPath [sharedVmfs-0] kubevols/e2e-vmdk-1234.vmdk, return value remains same [sharedVmfs-0] kubevols/e2e-vmdk-1234.vmdk
-func removeClusterFromVDiskPath(vDiskPath string) string {
-	datastore := regexp.MustCompile("\\[(.*?)\\]").FindStringSubmatch(vDiskPath)[1]
-	if filepath.Base(datastore) != datastore {
-		vDiskPath = strings.Replace(vDiskPath, datastore, filepath.Base(datastore), 1)
-	}
-	return vDiskPath
 }
 
 // A background routine which will be responsible for deleting stale dummy VM's.
