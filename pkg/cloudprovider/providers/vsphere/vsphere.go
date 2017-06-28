@@ -317,6 +317,7 @@ func (vs *VSphere) NodeAddresses(nodeName k8stypes.NodeName) ([]v1.NodeAddress, 
 	}
 	vmMoList, err := vm.Datacenter.GetVMMoList(ctx, []*vclib.VirtualMachine{vm}, []string{"guest.net"})
 	if err != nil {
+		glog.Errorf("Failed to get VM Managed object with property guest.net for node: %q. err: +%v", nodeNameToVMName(nodeName), err)
 		return nil, err
 	}
 	// retrieve VM's ip(s)
@@ -387,6 +388,7 @@ func (vs *VSphere) InstanceID(nodeName k8stypes.NodeName) (string, error) {
 	}
 	vmMoList, err := vm.Datacenter.GetVMMoList(ctx, []*vclib.VirtualMachine{vm}, []string{"summary"})
 	if err != nil {
+		glog.Errorf("Failed to get VM Managed object with property summary for node: %q. err: +%v", nodeNameToVMName(nodeName), err)
 		return "", err
 	}
 	if vmMoList[0].Summary.Runtime.PowerState == ActivePowerState {
@@ -570,6 +572,7 @@ func (vs *VSphere) DisksAreAttached(volPaths []string, nodeName k8stypes.NodeNam
 
 // CreateVolume creates a volume of given size (in KiB).
 func (vs *VSphere) CreateVolume(volumeOptions *vclib.VolumeOptions) (volumePath string, err error) {
+	glog.V(1).Infof("Starting to create a vSphere volume with volumeOptions: %+v", volumeOptions)
 	var datastore string
 	// Default datastore is the datastore in the vSphere config file that is used to initialize vSphere cloud provider.
 	if volumeOptions.Datastore == "" {
@@ -598,18 +601,21 @@ func (vs *VSphere) CreateVolume(volumeOptions *vclib.VolumeOptions) (volumePath 
 		// This routine will get executed for every 5 minutes and gets initiated only once in its entire lifetime.
 		cleanUpRoutineInitLock.Lock()
 		if !cleanUpRoutineInitialized {
+			glog.V(1).Infof("Starting a clean up routine to remove stale dummy VM's")
 			go vs.cleanUpDummyVMs(DummyVMPrefixName)
 			cleanUpRoutineInitialized = true
 		}
 		cleanUpRoutineInitLock.Unlock()
 		vmOptions, err = vs.setVMOptions(ctx, dc)
 		if err != nil {
+			glog.Errorf("Failed to set VM options requires to create a vsphere volume. err: %+v", err)
 			return "", err
 		}
 	}
 	if volumeOptions.StoragePolicyName != "" && volumeOptions.Datastore == "" {
 		datastore, err = getPbmCompatibleDatastore(ctx, dc.Client(), volumeOptions.StoragePolicyName, vmOptions.VMFolder)
 		if err != nil {
+			glog.Errorf("Failed to get pbm compatible datastore with storagePolicy: %s. err: %+v", volumeOptions.StoragePolicyName, err)
 			return "", err
 		}
 	}
@@ -632,6 +638,7 @@ func (vs *VSphere) CreateVolume(volumeOptions *vclib.VolumeOptions) (volumePath 
 	}
 	err = disk.Create(ctx, ds)
 	if err != nil {
+		glog.Errorf("Failed to create a vsphere volume with volumeOptions: %+v on datastore: %s. err: %+v", volumeOptions, datastore, err)
 		return "", err
 	}
 	return volumePath, nil
@@ -639,6 +646,7 @@ func (vs *VSphere) CreateVolume(volumeOptions *vclib.VolumeOptions) (volumePath 
 
 // DeleteVolume deletes a volume given volume name.
 func (vs *VSphere) DeleteVolume(vmDiskPath string) error {
+	glog.V(1).Infof("Starting to delete vSphere volume with vmDiskPath: %s", vmDiskPath)
 	// Create context
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -661,6 +669,9 @@ func (vs *VSphere) DeleteVolume(vmDiskPath string) error {
 		VMOptions:     &vclib.VMOptions{},
 	}
 	err = disk.Delete(ctx, ds)
+	if err != nil {
+		glog.Errorf("Failed to delete vsphere volume with vmDiskPath: %s. err: %+v", vmDiskPath, err)
+	}
 	return err
 }
 
@@ -680,6 +691,7 @@ func (vs *VSphere) NodeExists(nodeName k8stypes.NodeName) (bool, error) {
 	}
 	vmMoList, err := vm.Datacenter.GetVMMoList(ctx, []*vclib.VirtualMachine{vm}, []string{"summary"})
 	if err != nil {
+		glog.Errorf("Failed to get VM Managed object with property summary for node: %q. err: +%v", nodeNameToVMName(nodeName), err)
 		return false, err
 	}
 	if vmMoList[0].Summary.Runtime.PowerState == ActivePowerState {

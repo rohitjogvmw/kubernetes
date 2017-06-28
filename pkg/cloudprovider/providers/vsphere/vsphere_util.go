@@ -111,7 +111,12 @@ func getvmUUID() (string, error) {
 func getSharedDatastoresInK8SCluster(ctx context.Context, folder *vclib.Folder) ([]*vclib.Datastore, error) {
 	vmList, err := folder.GetVirtualMachines(ctx)
 	if err != nil {
+		glog.Errorf("Failed to get virtual machines in the kubernetes cluster: %s, err: %+v", folder.InventoryPath, err)
 		return nil, err
+	}
+	if vmList == nil || len(vmList) == 0 {
+		glog.Errorf("No virtual machines found in the kubernetes cluster: %s", folder.InventoryPath)
+		return nil, fmt.Errorf("No virtual machines found in the kubernetes cluster: %s", folder.InventoryPath)
 	}
 	index := 0
 	var sharedDatastores []*vclib.Datastore
@@ -130,7 +135,7 @@ func getSharedDatastoresInK8SCluster(ctx context.Context, folder *vclib.Folder) 
 			} else {
 				sharedDatastores = intersect(sharedDatastores, accessibleDatastores)
 				if len(sharedDatastores) == 0 {
-					return nil, fmt.Errorf("No shared datastores found in the Kubernetes cluster")
+					return nil, fmt.Errorf("No shared datastores found in the Kubernetes cluster: %s", folder.InventoryPath)
 				}
 			}
 			index++
@@ -198,18 +203,22 @@ func getPbmCompatibleDatastore(ctx context.Context, client *vim25.Client, storag
 	}
 	storagePolicyID, err := pbmClient.ProfileIDByName(ctx, storagePolicyName)
 	if err != nil {
+		glog.Errorf("Failed to Profile ID by name: %s. err: %+v", storagePolicyName, err)
 		return "", err
 	}
 	sharedDsList, err := getSharedDatastoresInK8SCluster(ctx, folder)
 	if err != nil {
+		glog.Errorf("Failed to get shared datastores from kubernetes cluster: %s. err: %+v", folder.InventoryPath, err)
 		return "", err
 	}
 	compatibleDatastores, _, err := pbmClient.GetCompatibleDatastores(ctx, storagePolicyID, sharedDsList)
 	if err != nil {
+		glog.Errorf("Failed to get compatible datastores from datastores : %+v with storagePolicy: %s. err: %+v", sharedDsList, storagePolicyID, err)
 		return "", err
 	}
 	datastore, err := getMostFreeDatastoreName(ctx, client, compatibleDatastores)
 	if err != nil {
+		glog.Errorf("Failed to get most free datastore from compatible datastores: %+v. err: %+v", compatibleDatastores, err)
 		return "", err
 	}
 	return datastore, err
