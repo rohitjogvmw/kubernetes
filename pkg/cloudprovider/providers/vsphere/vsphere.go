@@ -603,6 +603,7 @@ func vmNameToNodeName(vmName string) k8stypes.NodeName {
 
 // ExternalID returns the cloud provider ID of the node with the specified Name (deprecated).
 func (vs *VSphere) ExternalID(nodeName k8stypes.NodeName) (string, error) {
+	glog.V(1).Info("balu - vSphere ExternalID called with nodeName: %s", nodeName)
 	if vs.localInstanceID == nodeNameToVMName(nodeName) {
 		return vs.cfg.Global.WorkingDir + vs.localInstanceID, nil
 	}
@@ -632,6 +633,7 @@ func (vs *VSphere) ExternalID(nodeName k8stypes.NodeName) (string, error) {
 
 // InstanceID returns the cloud provider ID of the node with the specified Name.
 func (vs *VSphere) InstanceID(nodeName k8stypes.NodeName) (string, error) {
+	glog.V(1).Info("balu - vSphere InstanceID called with nodeName: %s", nodeName)
 	if vs.localInstanceID == nodeNameToVMName(nodeName) {
 		return vs.cfg.Global.WorkingDir + vs.localInstanceID, nil
 	}
@@ -1044,6 +1046,7 @@ func (vs *VSphere) DiskIsAttached(volPath string, nodeName k8stypes.NodeName) (b
 
 // DisksAreAttached returns if disks are attached to the VM using controllers supported by the plugin.
 func (vs *VSphere) DisksAreAttached(volPaths []string, nodeName k8stypes.NodeName) (map[string]bool, error) {
+	glog.V(1).Info("balu - vSphere DisksAreAttached called with volPaths: %+v and nodeName: %s", volPaths, nodeName)
 	disksAreAttachedInternal := func(volPaths []string, nodeName k8stypes.NodeName) (map[string]bool, error) {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()

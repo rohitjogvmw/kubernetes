@@ -85,6 +85,7 @@ func (attacher *vsphereVMDKAttacher) Attach(spec *volume.Spec, nodeName types.No
 }
 
 func (attacher *vsphereVMDKAttacher) VolumesAreAttached(specs []*volume.Spec, nodeName types.NodeName) (map[*volume.Spec]bool, error) {
+	glog.V(1).Info("balu - vSphere VolumesAreAttached called with specs: %+v and nodeName: %s", specs, nodeName)
 	volumesAttachedCheck := make(map[*volume.Spec]bool)
 	volumeSpecMap := make(map[string]*volume.Spec)
 	volumePathList := []string{}
