@@ -117,6 +117,7 @@ func (dc *Datacenter) GetVMMoList(ctx context.Context, vmObjList []*VirtualMachi
 	for _, vmObj := range vmObjList {
 		vmRefs = append(vmRefs, vmObj.Reference())
 	}
+	glog.Errorf("balu - printing dc client %+v", dc.Client())
 	pc := property.DefaultCollector(dc.Client())
 	err := pc.Retrieve(ctx, vmRefs, properties, &vmMoList)
 	if err != nil {

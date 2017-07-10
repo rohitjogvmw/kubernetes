@@ -21,7 +21,6 @@ import (
 	"errors"
 	"io/ioutil"
 	"os"
-	"runtime"
 	"strings"
 	"time"
 
@@ -43,7 +42,7 @@ const (
 	VirtualMachine        = "VirtualMachine"
 )
 
-// Reads vSphere configuration from system environment and construct vSphere object
+// GetVSphere reads vSphere configuration from system environment and construct vSphere object
 func GetVSphere() (*VSphere, error) {
 	cfg := getVSphereConfig()
 	vSphereConn, err := GetgovmomiClient(cfg)
@@ -55,7 +54,6 @@ func GetVSphere() (*VSphere, error) {
 		cfg:             cfg,
 		localInstanceID: "",
 	}
-	runtime.SetFinalizer(vs, logout)
 	return vs, nil
 }
 

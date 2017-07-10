@@ -531,6 +531,11 @@ func (vs *VSphere) DiskIsAttached(volPath string, nodeName k8stypes.NodeName) (b
 			return false, err
 		}
 		attached, err := vm.IsDiskAttached(ctx, volPath)
+		if err != nil {
+			glog.Errorf("DiskIsAttached failed to determine whether disk %q is still attached on node %q",
+				volPath,
+				vSphereInstance)
+		}
 		return attached, err
 	}
 	requestTime := time.Now()
@@ -583,6 +588,10 @@ func (vs *VSphere) DisksAreAttached(volPaths []string, nodeName k8stypes.NodeNam
 					attached[volPath] = false
 				}
 			} else {
+				glog.Errorf("DisksAreAttached failed to determine whether disk %q from volPaths %+v is still attached on node %q",
+					volPath,
+					volPaths,
+					vSphereInstance)
 				return nil, err
 			}
 		}
@@ -732,6 +741,7 @@ func (vs *VSphere) NodeExists(nodeName k8stypes.NodeName) (bool, error) {
 		glog.Errorf("Failed to get VM object for node: %s. err: +%v", nodeNameToVMName(nodeName), err)
 		return false, err
 	}
+	glog.Errorf("balu - printing VM %+v and VM DC %+v", vm, vm.Datacenter)
 	vmMoList, err := vm.Datacenter.GetVMMoList(ctx, []*vclib.VirtualMachine{vm}, []string{"summary"})
 	if err != nil {
 		glog.Errorf("Failed to get VM Managed object with property summary for node: %q. err: +%v", nodeNameToVMName(nodeName), err)
