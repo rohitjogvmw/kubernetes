@@ -196,14 +196,14 @@ func newVSphere(cfg VSphereConfig) (*VSphere, error) {
 		RoundTripperCount: cfg.Global.RoundTripperCount,
 	}
 	var instanceID string
+	err = vSphereConn.Connect()
+	if err != nil {
+		glog.Errorf("Failed to connect to vSphere")
+		return nil, err
+	}
 	if cfg.Global.VMName == "" {
 		// if VMName is not set in the cloud config file, each nodes (including worker nodes) need credentials to obtain VMName from vCenter
 		glog.V(4).Infof("Cannot find VMName from cloud config file, start obtaining it from vCenter")
-		err = vSphereConn.Connect()
-		if err != nil {
-			glog.Errorf("Failed to connect to vSphere")
-			return nil, err
-		}
 		// Create context
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -234,6 +234,7 @@ func newVSphere(cfg VSphereConfig) (*VSphere, error) {
 
 func logout(vs *VSphere) {
 	if vs.conn.GoVmomiClient != nil {
+		glog.Error("balu - Calling logout now")
 		vs.conn.GoVmomiClient.Logout(context.TODO())
 	}
 }
@@ -510,7 +511,7 @@ func (vs *VSphere) DiskIsAttached(volPath string, nodeName k8stypes.NodeName) (b
 		}
 		nodeExist, err := vs.NodeExists(nodeName)
 		if err != nil {
-			glog.Errorf("Failed to check whether node exist. err: %s.", err)
+			glog.Errorf("Failed to check whether node %q exist. err: %s.", vSphereInstance, err)
 			return false, err
 		}
 		if !nodeExist {
@@ -526,7 +527,7 @@ func (vs *VSphere) DiskIsAttached(volPath string, nodeName k8stypes.NodeName) (b
 		defer cancel()
 		vm, err := vs.getVMByName(ctx, nodeName)
 		if err != nil {
-			glog.Errorf("Failed to get VM object for node: %q. err: +%v", nodeNameToVMName(nodeName), err)
+			glog.Errorf("Failed to get VM object for node: %q. err: +%v", vSphereInstance, err)
 			return false, err
 		}
 		attached, err := vm.IsDiskAttached(ctx, volPath)
