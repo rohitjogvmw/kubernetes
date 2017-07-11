@@ -32,4 +32,5 @@ const (
 	RoundTripperDefaultCount = 3
 	VSANDatastoreType        = "vsan"
 	DummyVMPrefixName        = "vsphere-k8s"
+	ActivePowerState         = "poweredOn"
 )

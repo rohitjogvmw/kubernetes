@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"time"
 
+	"k8s.io/kubernetes/pkg/cloudprovider/providers/vsphere/vclib"
+
 	"github.com/golang/glog"
 	"github.com/vmware/govmomi/object"
 	"github.com/vmware/govmomi/vim25/mo"
@@ -170,6 +172,25 @@ func (vm *VirtualMachine) GetResourcePool(ctx context.Context) (*object.Resource
 		return nil, err
 	}
 	return object.NewResourcePool(vm.Client(), vmMoList[0].ResourcePool.Reference()), nil
+}
+
+// Exists checks if the VM exists.
+// Returns false if VM doesn't exist or VM is in powerOff state.
+func (vm *VirtualMachine) Exists(ctx context.Context) (bool, error) {
+	vmMoList, err := vm.Datacenter.GetVMMoList(ctx, []*vclib.VirtualMachine{vm}, []string{"summary"})
+	if err != nil {
+		glog.Errorf("Failed to get VM Managed object with property summary. err: +%v", err)
+		return false, err
+	}
+	if vmMoList[0].Summary.Runtime.PowerState == ActivePowerState {
+		return true, nil
+	}
+	if vmMoList[0].Summary.Config.Template == false {
+		glog.Warningf("VM is not in %s state", ActivePowerState)
+	} else {
+		glog.Warningf("VM is a template")
+	}
+	return false, nil
 }
 
 // GetAllAccessibleDatastores gets the list of accessible Datastores for the given Virtual Machine

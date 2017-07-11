@@ -30,7 +30,7 @@ var (
 // Connect makes connection to vCenter and sets VSphereConnection.GoVmomiClient.
 // If connection.GoVmomiClient is already set, it obtains the existing user session.
 // if user session is not valid, connection.GoVmomiClient will be set to the new client.
-func (connection *VSphereConnection) Connect() error {
+func (connection *VSphereConnection) Connect(ctx context.Context) error {
 	var err error
 	clientLock.Lock()
 	defer clientLock.Unlock()
@@ -44,8 +44,6 @@ func (connection *VSphereConnection) Connect() error {
 		return nil
 	}
 	m := session.NewManager(connection.GoVmomiClient.Client)
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
 	userSession, err := m.UserSession(ctx)
 	if err != nil {
 		glog.Errorf("Error while obtaining user session. err: %+v", err)
