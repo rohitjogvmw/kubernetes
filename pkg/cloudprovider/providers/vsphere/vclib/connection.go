@@ -36,7 +36,7 @@ func (connection *VSphereConnection) Connect(ctx context.Context) error {
 	defer clientLock.Unlock()
 
 	if connection.GoVmomiClient == nil {
-		connection.GoVmomiClient, err = connection.newClient(ctx)
+		connection.GoVmomiClient, err = connection.NewClient(ctx)
 		if err != nil {
 			glog.Errorf("Failed to create govmomi client. err: %+v", err)
 			return err
@@ -54,7 +54,7 @@ func (connection *VSphereConnection) Connect(ctx context.Context) error {
 	}
 	glog.Warningf("Creating new client session since the existing session is not valid or not authenticated")
 	connection.GoVmomiClient.Logout(ctx)
-	connection.GoVmomiClient, err = connection.newClient(ctx)
+	connection.GoVmomiClient, err = connection.NewClient(ctx)
 	if err != nil {
 		glog.Errorf("Failed to create govmomi client. err: %+v", err)
 		return err
@@ -63,7 +63,7 @@ func (connection *VSphereConnection) Connect(ctx context.Context) error {
 }
 
 // NewClient creates a new govmomi client for the VSphereConnection obj
-func (connection *VSphereConnection) newClient(ctx context.Context) (*govmomi.Client, error) {
+func (connection *VSphereConnection) NewClient(ctx context.Context) (*govmomi.Client, error) {
 	url, err := netUrl.Parse(fmt.Sprintf("https://%s/sdk", connection.Hostname))
 	if err != nil {
 		glog.Errorf("Failed to parse URL: %s. err: %+v", url, err)

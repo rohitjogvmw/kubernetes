@@ -23,12 +23,12 @@ type Datacenter struct {
 // If datacenter is located in a folder, include full path to datacenter else just provide the datacenter name
 func GetDatacenter(ctx context.Context, connection *VSphereConnection, datacenterPath string) (*Datacenter, error) {
 	finder := find.NewFinder(connection.GoVmomiClient.Client, true)
-	dataCenter, err := finder.Datacenter(ctx, datacenterPath)
+	datacenter, err := finder.Datacenter(ctx, datacenterPath)
 	if err != nil {
 		glog.Errorf("Failed to find the datacenter: %s. err: %+v", datacenterPath, err)
 		return nil, err
 	}
-	dc := Datacenter{dataCenter}
+	dc := Datacenter{datacenter}
 	return &dc, nil
 }
 

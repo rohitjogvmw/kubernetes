@@ -21,10 +21,12 @@ import (
 	"errors"
 	"io/ioutil"
 	"os"
+	"runtime"
 	"strings"
 	"time"
 
 	"github.com/golang/glog"
+	"github.com/vmware/govmomi"
 	"github.com/vmware/govmomi/object"
 	"github.com/vmware/govmomi/vim25"
 	"github.com/vmware/govmomi/vim25/mo"
@@ -45,15 +47,18 @@ const (
 // GetVSphere reads vSphere configuration from system environment and construct vSphere object
 func GetVSphere() (*VSphere, error) {
 	cfg := getVSphereConfig()
-	vSphereConn, err := GetgovmomiClient(cfg)
+	vSphereConn := getVSphereConn(cfg)
+	client, err := GetgovmomiClient(vSphereConn)
 	if err != nil {
 		return nil, err
 	}
+	vSphereConn.GoVmomiClient = client
 	vs := &VSphere{
 		conn:            vSphereConn,
 		cfg:             cfg,
 		localInstanceID: "",
 	}
+	runtime.SetFinalizer(vs, logout)
 	return vs, nil
 }
 
@@ -73,12 +78,24 @@ func getVSphereConfig() *VSphereConfig {
 	return &cfg
 }
 
-func GetgovmomiClient(cfg *VSphereConfig) (*vclib.VSphereConnection, error) {
-	if cfg == nil {
-		cfg = getVSphereConfig()
+func getVSphereConn(cfg *VSphereConfig) *vclib.VSphereConnection {
+	vSphereConn := &vclib.VSphereConnection{
+		Username:          cfg.Global.User,
+		Password:          cfg.Global.Password,
+		Hostname:          cfg.Global.VCenterIP,
+		Insecure:          cfg.Global.InsecureFlag,
+		RoundTripperCount: cfg.Global.RoundTripperCount,
 	}
-	vs, err := newVSphere(*cfg)
-	return vs.conn, err
+	return vSphereConn
+}
+
+func GetgovmomiClient(conn *vclib.VSphereConnection) (*govmomi.Client, error) {
+	if conn == nil {
+		cfg := getVSphereConfig()
+		conn = getVSphereConn(cfg)
+	}
+	client, err := conn.NewClient(context.TODO())
+	return client, err
 }
 
 // getvmUUID gets the BIOS UUID via the sys interface.  This UUID is known by vsphere
