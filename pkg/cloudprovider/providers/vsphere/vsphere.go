@@ -518,39 +518,44 @@ func (vs *VSphere) DiskIsAttached(volPath string, nodeName k8stypes.NodeName) (b
 		} else {
 			vSphereInstance = nodeNameToVMName(nodeName)
 		}
+		glog.Errorf("balu - creating a context DiskIsAttached")
 		// Create context
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
+		glog.Errorf("balu - after creation of context DiskIsAttached")
 		// Ensure client is logged in and session is valid
 		err := vs.conn.Connect(ctx)
 		if err != nil {
 			return false, err
 		}
+		glog.Errorf("balu - successfully connected to VC %+v", vs)
 		vm, err := vs.getVMByName(ctx, nodeName)
 		if err != nil {
 			glog.Errorf("Failed to get VM object for node: %q. err: +%v", vSphereInstance, err)
 			return false, err
 		}
+		glog.Errorf("balu - after getVMByName VM: %+v", vm)
 		nodeExist, err := vm.Exists(ctx)
 		if err != nil {
 			glog.Errorf("Failed to check whether node %q exist. err: %+v", vSphereInstance, err)
 			return false, err
 		}
 		if !nodeExist {
-			glog.Errorf("DiskIsAttached failed to determine whether disk %q is still attached: node %q does not exist",
+			glog.Errorf("DiskIsAttached failed to determine whether disk %q is still attached: node %q is powered off",
 				volPath,
 				vSphereInstance)
-			return false, fmt.Errorf("DiskIsAttached failed to determine whether disk %q is still attached: node %q does not exist",
+			return false, fmt.Errorf("DiskIsAttached failed to determine whether disk %q is still attached: node %q is powered off",
 				volPath,
 				vSphereInstance)
 		}
-
+		glog.Errorf("balu - after Exists nodeExist is true")
 		attached, err := vm.IsDiskAttached(ctx, volPath)
 		if err != nil {
 			glog.Errorf("DiskIsAttached failed to determine whether disk %q is still attached on node %q",
 				volPath,
 				vSphereInstance)
 		}
+		glog.Errorf("balu - after IsDiskAttached attached is %t", attached)
 		return attached, err
 	}
 	requestTime := time.Now()
