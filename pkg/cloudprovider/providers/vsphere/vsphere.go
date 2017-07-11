@@ -392,18 +392,13 @@ func (vs *VSphere) InstanceID(nodeName k8stypes.NodeName) (string, error) {
 		glog.Errorf("Failed to get VM object for node: %q. err: +%v", nodeNameToVMName(nodeName), err)
 		return "", err
 	}
-	vmMoList, err := vm.Datacenter.GetVMMoList(ctx, []*vclib.VirtualMachine{vm}, []string{"summary"})
+	nodeExist, err := vm.Exists(ctx)
 	if err != nil {
-		glog.Errorf("Failed to get VM Managed object with property summary for node: %q. err: +%v", nodeNameToVMName(nodeName), err)
+		glog.Errorf("Failed to check whether node %q exist. err: %+v.", nodeNameToVMName(nodeName), err)
 		return "", err
 	}
-	if vmMoList[0].Summary.Runtime.PowerState == ActivePowerState {
+	if nodeExist {
 		return "/" + vm.InventoryPath, nil
-	}
-	if vmMoList[0].Summary.Config.Template == false {
-		glog.Warningf("VM %s, is not in %s state", nodeName, ActivePowerState)
-	} else {
-		glog.Warningf("VM %s, is a template", nodeName)
 	}
 	return "", cloudprovider.InstanceNotFound
 }
@@ -538,7 +533,7 @@ func (vs *VSphere) DiskIsAttached(volPath string, nodeName k8stypes.NodeName) (b
 		}
 		nodeExist, err := vm.Exists(ctx)
 		if err != nil {
-			glog.Errorf("Failed to check whether node %q exist. err: %s.", vSphereInstance, err)
+			glog.Errorf("Failed to check whether node %q exist. err: %+v", vSphereInstance, err)
 			return false, err
 		}
 		if !nodeExist {
@@ -593,7 +588,7 @@ func (vs *VSphere) DisksAreAttached(volPaths []string, nodeName k8stypes.NodeNam
 		}
 		nodeExist, err := vm.Exists(ctx)
 		if err != nil {
-			glog.Errorf("Failed to check whether node %q exist. err: %s.", vSphereInstance, err)
+			glog.Errorf("Failed to check whether node %q exist. err: %+v", vSphereInstance, err)
 			return nil, err
 		}
 		if !nodeExist {
