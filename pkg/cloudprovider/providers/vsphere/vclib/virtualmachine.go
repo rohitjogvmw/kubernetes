@@ -6,8 +6,6 @@ import (
 	"path/filepath"
 	"time"
 
-	"k8s.io/kubernetes/pkg/cloudprovider/providers/vsphere/vclib"
-
 	"github.com/golang/glog"
 	"github.com/vmware/govmomi/object"
 	"github.com/vmware/govmomi/vim25/mo"
@@ -177,7 +175,7 @@ func (vm *VirtualMachine) GetResourcePool(ctx context.Context) (*object.Resource
 // Exists checks if the VM exists.
 // Returns false if VM doesn't exist or VM is in powerOff state.
 func (vm *VirtualMachine) Exists(ctx context.Context) (bool, error) {
-	vmMoList, err := vm.Datacenter.GetVMMoList(ctx, []*vclib.VirtualMachine{vm}, []string{"summary"})
+	vmMoList, err := vm.Datacenter.GetVMMoList(ctx, []*VirtualMachine{vm}, []string{"summary"})
 	if err != nil {
 		glog.Errorf("Failed to get VM Managed object with property summary. err: +%v", err)
 		return false, err
