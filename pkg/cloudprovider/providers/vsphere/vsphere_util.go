@@ -249,7 +249,7 @@ func (vs *VSphere) cleanUpDummyVMs(dummyVMPrefix string) {
 	for {
 		time.Sleep(CleanUpDummyVMRoutineInterval * time.Minute)
 		// Ensure client is logged in and session is valid
-		err := vs.conn.Connect()
+		err := vs.conn.Connect(ctx)
 		if err != nil {
 			glog.V(4).Infof("Failed to connect to VC with err: %+v. Retrying again...", err)
 			continue
