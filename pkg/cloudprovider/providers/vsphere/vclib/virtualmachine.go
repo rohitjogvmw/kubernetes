@@ -40,7 +40,7 @@ func (vm *VirtualMachine) GetVirtualDiskPage83Data(ctx context.Context, diskPath
 	diskUUID, err := vdm.QueryVirtualDiskUuid(ctx, diskPath, vm.Datacenter.Datacenter)
 
 	if err != nil {
-		glog.Errorf("QueryVirtualDiskUuid failed for diskPath: %q on VM: %q. err: %+v", diskPath, vm.Name(), err)
+		glog.Errorf("QueryVirtualDiskUuid failed for diskPath: %q on VM: %q. err: %+v", diskPath, vm.InventoryPath, err)
 		return "", ErrNoDiskUUIDFound
 	}
 	diskUUID = formatVirtualDiskUUID(diskUUID)
@@ -51,7 +51,7 @@ func (vm *VirtualMachine) GetVirtualDiskPage83Data(ctx context.Context, diskPath
 func (vm *VirtualMachine) DeleteVM(ctx context.Context) error {
 	destroyTask, err := vm.Destroy(ctx)
 	if err != nil {
-		glog.Errorf("Failed to delete the VM: %q. err: %+v", vm.Name(), err)
+		glog.Errorf("Failed to delete the VM: %q. err: %+v", vm.InventoryPath, err)
 		return err
 	}
 	return destroyTask.Wait(ctx)
@@ -68,7 +68,7 @@ func (vm *VirtualMachine) AttachDisk(ctx context.Context, vmDiskPath string, vol
 	vmDiskPath = RemoveClusterFromVDiskPath(vmDiskPath)
 	attached, err := vm.IsDiskAttached(ctx, vmDiskPath)
 	if err != nil {
-		glog.Errorf("Error occurred while checking if disk is attached on VM: %q. vmDiskPath: %q, err: %+v", vm.Name(), vmDiskPath, err)
+		glog.Errorf("Error occurred while checking if disk is attached on VM: %q. vmDiskPath: %q, err: %+v", vm.InventoryPath, vmDiskPath, err)
 		return "", err
 	}
 	// If disk is already attached, return the disk UUID
@@ -90,7 +90,7 @@ func (vm *VirtualMachine) AttachDisk(ctx context.Context, vmDiskPath string, vol
 	}
 	vmDevices, err := vm.Device(ctx)
 	if err != nil {
-		glog.Errorf("Failed to retrieve VM devices for VM: %q. err: %+v", vm.Name(), err)
+		glog.Errorf("Failed to retrieve VM devices for VM: %q. err: %+v", vm.InventoryPath, err)
 		return "", err
 	}
 	virtualMachineConfigSpec := types.VirtualMachineConfigSpec{}
@@ -110,7 +110,7 @@ func (vm *VirtualMachine) AttachDisk(ctx context.Context, vmDiskPath string, vol
 	task, err := vm.Reconfigure(ctx, virtualMachineConfigSpec)
 	if err != nil {
 		RecordvSphereMetric(APIAttachVolume, requestTime, err)
-		glog.Errorf("Failed to attach the disk with storagePolicy: %q on VM: %q. err - %+v", volumeOptions.StoragePolicyID, vm.Name(), err)
+		glog.Errorf("Failed to attach the disk with storagePolicy: %q on VM: %q. err - %+v", volumeOptions.StoragePolicyID, vm.InventoryPath, err)
 		if newSCSIController != nil {
 			vm.deleteController(ctx, newSCSIController, vmDevices)
 		}
@@ -119,7 +119,7 @@ func (vm *VirtualMachine) AttachDisk(ctx context.Context, vmDiskPath string, vol
 	err = task.Wait(ctx)
 	RecordvSphereMetric(APIAttachVolume, requestTime, err)
 	if err != nil {
-		glog.Errorf("Failed to attach the disk with storagePolicy: %+q on VM: %q. err - %+v", volumeOptions.StoragePolicyID, vm.Name(), err)
+		glog.Errorf("Failed to attach the disk with storagePolicy: %+q on VM: %q. err - %+v", volumeOptions.StoragePolicyID, vm.InventoryPath, err)
 		if newSCSIController != nil {
 			vm.deleteController(ctx, newSCSIController, vmDevices)
 		}
@@ -129,7 +129,7 @@ func (vm *VirtualMachine) AttachDisk(ctx context.Context, vmDiskPath string, vol
 	// Once disk is attached, get the disk UUID.
 	diskUUID, err := vm.GetVirtualDiskPage83Data(ctx, vmDiskPath)
 	if err != nil {
-		glog.Errorf("Error occurred while getting Disk Info from VM: %q. err: %v", vm.Name(), err)
+		glog.Errorf("Error occurred while getting Disk Info from VM: %q. err: %v", vm.InventoryPath, err)
 		vm.DetachDisk(ctx, vmDiskPath)
 		if newSCSIController != nil {
 			vm.deleteController(ctx, newSCSIController, vmDevices)
@@ -144,19 +144,19 @@ func (vm *VirtualMachine) DetachDisk(ctx context.Context, vmDiskPath string) err
 	vmDiskPath = RemoveClusterFromVDiskPath(vmDiskPath)
 	device, err := vm.getVirtualDeviceByPath(ctx, vmDiskPath)
 	if err != nil {
-		glog.Errorf("Disk ID not found for VM: %q with diskPath: %q", vm.Name(), vmDiskPath)
+		glog.Errorf("Disk ID not found for VM: %q with diskPath: %q", vm.InventoryPath, vmDiskPath)
 		return err
 	}
 	if device == nil {
-		glog.Errorf("No virtual device found with diskPath: %q on VM: %q", vmDiskPath, vm.Name())
-		return fmt.Errorf("No virtual device found with diskPath: %q on VM: %q", vmDiskPath, vm.Name())
+		glog.Errorf("No virtual device found with diskPath: %q on VM: %q", vmDiskPath, vm.InventoryPath)
+		return fmt.Errorf("No virtual device found with diskPath: %q on VM: %q", vmDiskPath, vm.InventoryPath)
 	}
 	// Detach disk from VM
 	requestTime := time.Now()
 	err = vm.RemoveDevice(ctx, true, device)
 	RecordvSphereMetric(APIDetachVolume, requestTime, err)
 	if err != nil {
-		glog.Errorf("Error occurred while removing disk device for VM: %q. err: %v", vm.Name(), err)
+		glog.Errorf("Error occurred while removing disk device for VM: %q. err: %v", vm.InventoryPath, err)
 		return err
 	}
 	return nil
@@ -166,7 +166,7 @@ func (vm *VirtualMachine) DetachDisk(ctx context.Context, vmDiskPath string) err
 func (vm *VirtualMachine) GetResourcePool(ctx context.Context) (*object.ResourcePool, error) {
 	vmMoList, err := vm.Datacenter.GetVMMoList(ctx, []*VirtualMachine{vm}, []string{"resourcePool"})
 	if err != nil {
-		glog.Errorf("Failed to get resource pool from VM: %q. err: %+v", vm.Name(), err)
+		glog.Errorf("Failed to get resource pool from VM: %q. err: %+v", vm.InventoryPath, err)
 		return nil, err
 	}
 	return object.NewResourcePool(vm.Client(), vmMoList[0].ResourcePool.Reference()), nil
@@ -195,7 +195,7 @@ func (vm *VirtualMachine) Exists(ctx context.Context) (bool, error) {
 func (vm *VirtualMachine) GetAllAccessibleDatastores(ctx context.Context) ([]*Datastore, error) {
 	host, err := vm.HostSystem(ctx)
 	if err != nil {
-		glog.Errorf("Failed to get host system for VM: %q. err: %+v", vm.Name(), err)
+		glog.Errorf("Failed to get host system for VM: %q. err: %+v", vm.InventoryPath, err)
 		return nil, err
 	}
 	var hostSystemMo mo.HostSystem
@@ -226,7 +226,7 @@ func (vm *VirtualMachine) CreateDiskSpec(ctx context.Context, diskPath string, d
 	if scsiController == nil {
 		newSCSIController, err = vm.createAndAttachSCSIController(ctx, volumeOptions.SCSIControllerType)
 		if err != nil {
-			glog.Errorf("Failed to create SCSI controller for VM :%q with err: %+v", vm.Name(), err)
+			glog.Errorf("Failed to create SCSI controller for VM :%q with err: %+v", vm.InventoryPath, err)
 			return nil, nil, err
 		}
 		// Get VM device list
@@ -278,7 +278,7 @@ func (vm *VirtualMachine) createAndAttachSCSIController(ctx context.Context, dis
 	// Get VM device list
 	vmDevices, err := vm.Device(ctx)
 	if err != nil {
-		glog.Errorf("Failed to retrieve VM devices for VM: %q. err: %+v", vm.Name(), err)
+		glog.Errorf("Failed to retrieve VM devices for VM: %q. err: %+v", vm.InventoryPath, err)
 		return nil, err
 	}
 	allSCSIControllers := getSCSIControllers(vmDevices)
@@ -289,7 +289,7 @@ func (vm *VirtualMachine) createAndAttachSCSIController(ctx context.Context, dis
 	}
 	newSCSIController, err := vmDevices.CreateSCSIController(diskControllerType)
 	if err != nil {
-		glog.Errorf("Failed to create new SCSI controller on VM: %q. err: %+v", vm.Name(), err)
+		glog.Errorf("Failed to create new SCSI controller on VM: %q. err: %+v", vm.InventoryPath, err)
 		return nil, err
 	}
 	configNewSCSIController := newSCSIController.(types.BaseVirtualSCSIController).GetVirtualSCSIController()
@@ -300,7 +300,7 @@ func (vm *VirtualMachine) createAndAttachSCSIController(ctx context.Context, dis
 	// add the scsi controller to virtual machine
 	err = vm.AddDevice(context.TODO(), newSCSIController)
 	if err != nil {
-		glog.V(LogLevel).Infof("Cannot add SCSI controller to VM: %q. err: %+v", vm.Name(), err)
+		glog.V(LogLevel).Infof("Cannot add SCSI controller to VM: %q. err: %+v", vm.InventoryPath, err)
 		// attempt clean up of scsi controller
 		vm.deleteController(ctx, newSCSIController, vmDevices)
 		return nil, err
@@ -313,12 +313,12 @@ func (vm *VirtualMachine) getVirtualDeviceByPath(ctx context.Context, diskPath s
 	var diskUUID string
 	vmDevices, err := vm.Device(ctx)
 	if err != nil {
-		glog.Errorf("Failed to get the devices for VM: %q. err: %+v", vm.Name(), err)
+		glog.Errorf("Failed to get the devices for VM: %q. err: %+v", vm.InventoryPath, err)
 		return nil, err
 	}
 	volumeUUID, err := vm.GetVirtualDiskPage83Data(ctx, diskPath)
 	if err != nil {
-		glog.Errorf("Failed to get disk UUID for path: %q on VM: %q. err: %+v", diskPath, vm.Name(), err)
+		glog.Errorf("Failed to get disk UUID for path: %q on VM: %q. err: %+v", diskPath, vm.InventoryPath, err)
 		return nil, err
 	}
 	// filter vm devices to retrieve device for the given vmdk file identified by disk path
@@ -345,7 +345,7 @@ func (vm *VirtualMachine) deleteController(ctx context.Context, controllerDevice
 	device := controllerDeviceList[len(controllerDeviceList)-1]
 	err := vm.RemoveDevice(ctx, true, device)
 	if err != nil {
-		glog.Errorf("Error occurred while removing device on VM: %q. err: %+v", vm.Name(), err)
+		glog.Errorf("Error occurred while removing device on VM: %q. err: %+v", vm.InventoryPath, err)
 		return err
 	}
 	return nil
