@@ -58,9 +58,9 @@ func (pbmClient *PbmClient) IsDatastoreCompatible(ctx context.Context, storagePo
 			return false, "", err
 		}
 		if compatibilityResult[0].Error[0].LocalizedMessage == "" {
-			faultMessage = "Datastore: " + dsName + " not compatible with the storage policy."
+			faultMessage = "Datastore: " + dsName + " is not compatible with the storage policy."
 		} else {
-			faultMessage = "Datastore: " + dsName + " not compatible with the storage policy. LocalizedMessage: " + compatibilityResult[0].Error[0].LocalizedMessage + "\n"
+			faultMessage = "Datastore: " + dsName + " is not compatible with the storage policy. LocalizedMessage: " + compatibilityResult[0].Error[0].LocalizedMessage + "\n"
 		}
 		return false, faultMessage, nil
 	}

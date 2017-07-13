@@ -43,7 +43,6 @@ import (
 
 const (
 	ProviderName                  = "vsphere"
-	ActivePowerState              = "poweredOn"
 	VolDir                        = "kubevols"
 	RoundTripperDefaultCount      = 3
 	DummyVMPrefixName             = "vsphere-k8s"
@@ -195,17 +194,17 @@ func newVSphere(cfg VSphereConfig) (*VSphere, error) {
 		RoundTripperCount: cfg.Global.RoundTripperCount,
 	}
 	var instanceID string
+	// Create context
+	ctx, cancel := context.WithCancel(context.TODO())
+	defer cancel()
+	err = vSphereConn.Connect(ctx)
+	if err != nil {
+		glog.Errorf("Failed to connect to vSphere")
+		return nil, err
+	}
 	if cfg.Global.VMName == "" {
 		// if VMName is not set in the cloud config file, each nodes (including worker nodes) need credentials to obtain VMName from vCenter
 		glog.V(4).Infof("Cannot find VMName from cloud config file, start obtaining it from vCenter")
-		err = vSphereConn.Connect()
-		if err != nil {
-			glog.Errorf("Failed to connect to vSphere")
-			return nil, err
-		}
-		// Create context
-		ctx, cancel := context.WithCancel(context.Background())
-		defer cancel()
 		dc, err := vclib.GetDatacenter(ctx, &vSphereConn, cfg.Global.Datacenter)
 		if err != nil {
 			return nil, err
@@ -233,6 +232,7 @@ func newVSphere(cfg VSphereConfig) (*VSphere, error) {
 
 func logout(vs *VSphere) {
 	if vs.conn.GoVmomiClient != nil {
+		glog.Error("balu - Calling logout now")
 		vs.conn.GoVmomiClient.Logout(context.TODO())
 	}
 }
@@ -283,11 +283,6 @@ func getLocalIP() ([]v1.NodeAddress, error) {
 
 // Get the VM Managed Object instance by from the node
 func (vs *VSphere) getVMByName(ctx context.Context, nodeName k8stypes.NodeName) (*vclib.VirtualMachine, error) {
-	// Ensure client is logged in and session is valid
-	err := vs.conn.Connect()
-	if err != nil {
-		return nil, err
-	}
 	dc, err := vclib.GetDatacenter(ctx, vs.conn, vs.cfg.Global.Datacenter)
 	if err != nil {
 		return nil, err
@@ -310,6 +305,11 @@ func (vs *VSphere) NodeAddresses(nodeName k8stypes.NodeName) ([]v1.NodeAddress, 
 	// Create context
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+	// Ensure client is logged in and session is valid
+	err := vs.conn.Connect(ctx)
+	if err != nil {
+		return nil, err
+	}
 	vm, err := vs.getVMByName(ctx, nodeName)
 	if err != nil {
 		glog.Errorf("Failed to get VM object for node: %q. err: +%v", nodeNameToVMName(nodeName), err)
@@ -382,23 +382,23 @@ func (vs *VSphere) InstanceID(nodeName k8stypes.NodeName) (string, error) {
 	// Create context
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+	// Ensure client is logged in and session is valid
+	err := vs.conn.Connect(ctx)
+	if err != nil {
+		return "", err
+	}
 	vm, err := vs.getVMByName(ctx, nodeName)
 	if err != nil {
 		glog.Errorf("Failed to get VM object for node: %q. err: +%v", nodeNameToVMName(nodeName), err)
 		return "", err
 	}
-	vmMoList, err := vm.Datacenter.GetVMMoList(ctx, []*vclib.VirtualMachine{vm}, []string{"summary"})
+	nodeExist, err := vm.Exists(ctx)
 	if err != nil {
-		glog.Errorf("Failed to get VM Managed object with property summary for node: %q. err: +%v", nodeNameToVMName(nodeName), err)
+		glog.Errorf("Failed to check whether node %q exist. err: %+v.", nodeNameToVMName(nodeName), err)
 		return "", err
 	}
-	if vmMoList[0].Summary.Runtime.PowerState == ActivePowerState {
+	if nodeExist {
 		return "/" + vm.InventoryPath, nil
-	}
-	if vmMoList[0].Summary.Config.Template == false {
-		glog.Warningf("VM %s, is not in %s state", nodeName, ActivePowerState)
-	} else {
-		glog.Warningf("VM %s, is a template", nodeName)
 	}
 	return "", cloudprovider.InstanceNotFound
 }
@@ -453,6 +453,11 @@ func (vs *VSphere) AttachDisk(vmDiskPath string, storagePolicyID string, nodeNam
 		// Create context
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
+		// Ensure client is logged in and session is valid
+		err = vs.conn.Connect(ctx)
+		if err != nil {
+			return "", err
+		}
 		vm, err := vs.getVMByName(ctx, nodeName)
 		if err != nil {
 			glog.Errorf("Failed to get VM object for node: %q. err: +%v", nodeNameToVMName(nodeName), err)
@@ -480,6 +485,11 @@ func (vs *VSphere) DetachDisk(volPath string, nodeName k8stypes.NodeName) error 
 		// Create context
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
+		// Ensure client is logged in and session is valid
+		err := vs.conn.Connect(ctx)
+		if err != nil {
+			return err
+		}
 		vm, err := vs.getVMByName(ctx, nodeName)
 		if err != nil {
 			glog.Errorf("Failed to get VM object for node: %q. err: +%v", nodeNameToVMName(nodeName), err)
@@ -508,28 +518,38 @@ func (vs *VSphere) DiskIsAttached(volPath string, nodeName k8stypes.NodeName) (b
 		} else {
 			vSphereInstance = nodeNameToVMName(nodeName)
 		}
-		nodeExist, err := vs.NodeExists(nodeName)
-		if err != nil {
-			glog.Errorf("Failed to check whether node exist. err: %s.", err)
-			return false, err
-		}
-		if !nodeExist {
-			glog.Errorf("DiskIsAttached failed to determine whether disk %q is still attached: node %q does not exist",
-				volPath,
-				vSphereInstance)
-			return false, fmt.Errorf("DiskIsAttached failed to determine whether disk %q is still attached: node %q does not exist",
-				volPath,
-				vSphereInstance)
-		}
 		// Create context
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
-		vm, err := vs.getVMByName(ctx, nodeName)
+		// Ensure client is logged in and session is valid
+		err := vs.conn.Connect(ctx)
 		if err != nil {
-			glog.Errorf("Failed to get VM object for node: %q. err: +%v", nodeNameToVMName(nodeName), err)
 			return false, err
 		}
+		vm, err := vs.getVMByName(ctx, nodeName)
+		if err != nil {
+			glog.Errorf("Failed to get VM object for node: %q. err: +%v", vSphereInstance, err)
+			return false, err
+		}
+		nodeExist, err := vm.Exists(ctx)
+		if err != nil {
+			glog.Errorf("Failed to check whether node %q exist. err: %+v", vSphereInstance, err)
+			return false, err
+		}
+		if !nodeExist {
+			glog.Errorf("DiskIsAttached failed to determine whether disk %q is still attached: node %q is powered off",
+				volPath,
+				vSphereInstance)
+			return false, fmt.Errorf("DiskIsAttached failed to determine whether disk %q is still attached: node %q is powered off",
+				volPath,
+				vSphereInstance)
+		}
 		attached, err := vm.IsDiskAttached(ctx, volPath)
+		if err != nil {
+			glog.Errorf("DiskIsAttached failed to determine whether disk %q is still attached on node %q",
+				volPath,
+				vSphereInstance)
+		}
 		return attached, err
 	}
 	requestTime := time.Now()
@@ -552,9 +572,22 @@ func (vs *VSphere) DisksAreAttached(volPaths []string, nodeName k8stypes.NodeNam
 		} else {
 			vSphereInstance = nodeNameToVMName(nodeName)
 		}
-		nodeExist, err := vs.NodeExists(nodeName)
+		// Create context
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		// Ensure client is logged in and session is valid
+		err := vs.conn.Connect(ctx)
 		if err != nil {
-			glog.Errorf("Failed to check whether node exist. err: %s.", err)
+			return nil, err
+		}
+		vm, err := vs.getVMByName(ctx, nodeName)
+		if err != nil {
+			glog.Errorf("Failed to get VM object for node: %q. err: +%v", vSphereInstance, err)
+			return nil, err
+		}
+		nodeExist, err := vm.Exists(ctx)
+		if err != nil {
+			glog.Errorf("Failed to check whether node %q exist. err: %+v", vSphereInstance, err)
 			return nil, err
 		}
 		if !nodeExist {
@@ -565,14 +598,6 @@ func (vs *VSphere) DisksAreAttached(volPaths []string, nodeName k8stypes.NodeNam
 				volPaths,
 				vSphereInstance)
 		}
-		// Create context
-		ctx, cancel := context.WithCancel(context.Background())
-		defer cancel()
-		vm, err := vs.getVMByName(ctx, nodeName)
-		if err != nil {
-			glog.Errorf("Failed to get VM object for node: %q. err: +%v", nodeNameToVMName(nodeName), err)
-			return nil, err
-		}
 		for _, volPath := range volPaths {
 			result, err := vm.IsDiskAttached(ctx, volPath)
 			if err == nil {
@@ -582,6 +607,10 @@ func (vs *VSphere) DisksAreAttached(volPaths []string, nodeName k8stypes.NodeNam
 					attached[volPath] = false
 				}
 			} else {
+				glog.Errorf("DisksAreAttached failed to determine whether disk %q from volPaths %+v is still attached on node %q",
+					volPath,
+					volPaths,
+					vSphereInstance)
 				return nil, err
 			}
 		}
@@ -607,14 +636,14 @@ func (vs *VSphere) CreateVolume(volumeOptions *vclib.VolumeOptions) (volumePath 
 		} else {
 			datastore = volumeOptions.Datastore
 		}
-		// Ensure client is logged in and session is valid
-		err = vs.conn.Connect()
-		if err != nil {
-			return "", err
-		}
 		// Create context
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
+		// Ensure client is logged in and session is valid
+		err = vs.conn.Connect(ctx)
+		if err != nil {
+			return "", err
+		}
 		dc, err := vclib.GetDatacenter(ctx, vs.conn, vs.cfg.Global.Datacenter)
 		if err != nil {
 			return "", err
@@ -688,7 +717,7 @@ func (vs *VSphere) DeleteVolume(vmDiskPath string) error {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		// Ensure client is logged in and session is valid
-		err := vs.conn.Connect()
+		err := vs.conn.Connect(ctx)
 		if err != nil {
 			return err
 		}
@@ -715,34 +744,4 @@ func (vs *VSphere) DeleteVolume(vmDiskPath string) error {
 	err := deleteVolumeInternal(vmDiskPath)
 	vclib.RecordvSphereMetric(vclib.OperationDeleteVolume, requestTime, err)
 	return err
-}
-
-// NodeExists checks if the node with given nodeName exist.
-// Returns false if VM doesn't exist or VM is in powerOff state.
-func (vs *VSphere) NodeExists(nodeName k8stypes.NodeName) (bool, error) {
-	if nodeName == "" {
-		return false, nil
-	}
-	// Create context
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	vm, err := vs.getVMByName(ctx, nodeName)
-	if err != nil {
-		glog.Errorf("Failed to get VM object for node: %s. err: +%v", nodeNameToVMName(nodeName), err)
-		return false, err
-	}
-	vmMoList, err := vm.Datacenter.GetVMMoList(ctx, []*vclib.VirtualMachine{vm}, []string{"summary"})
-	if err != nil {
-		glog.Errorf("Failed to get VM Managed object with property summary for node: %q. err: +%v", nodeNameToVMName(nodeName), err)
-		return false, err
-	}
-	if vmMoList[0].Summary.Runtime.PowerState == ActivePowerState {
-		return true, nil
-	}
-	if vmMoList[0].Summary.Config.Template == false {
-		glog.Warningf("VM %s, is not in %s state", nodeName, ActivePowerState)
-	} else {
-		glog.Warningf("VM %s, is a template", nodeName)
-	}
-	return false, nil
 }
