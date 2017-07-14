@@ -21,11 +21,12 @@ go_library(
         "virtualmachine.go",
         "vmoptions.go",
         "volumeoptions.go",
+        "vsphere_metrics.go",
     ],
     tags = ["automanaged"],
     deps = [
-        "//pkg/cloudprovider/providers/vsphere/vclib:go_default_library",
         "//vendor/github.com/golang/glog:go_default_library",
+        "//vendor/github.com/prometheus/client_golang/prometheus:go_default_library",
         "//vendor/github.com/vmware/govmomi:go_default_library",
         "//vendor/github.com/vmware/govmomi/find:go_default_library",
         "//vendor/github.com/vmware/govmomi/object:go_default_library",
